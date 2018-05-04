@@ -43,7 +43,7 @@ func main() {
 	}
 
 	quicConfig := &quic.Config{
-		CreatePaths: *multipath,
+		CreatePaths:    *multipath,
 		CacheHandshake: true,
 	}
 

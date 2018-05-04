@@ -311,7 +311,6 @@ var _ = Describe("Flow Control Manager", func() {
 			Expect(bytes3).To(Equal(protocol.ByteCount(500)))
 		})
 
-
 		It("errors when called for a stream doesn't exist", func() {
 			err := fcm.AddBytesSent(17, 1000)
 			Expect(err).To(MatchError(errMapAccess))

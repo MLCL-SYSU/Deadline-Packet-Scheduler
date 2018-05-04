@@ -230,8 +230,8 @@ var _ = Describe("Stream Framer", func() {
 				minFrameDataLen := protocol.MaxPacketSize
 
 				for i := 0; i < 30; i++ {
-					if i - int(frameHeaderLen) > 0 {
-						mockFcm.EXPECT().AddBytesRetrans(origFrame.StreamID, protocol.ByteCount(i) - frameHeaderLen)
+					if i-int(frameHeaderLen) > 0 {
+						mockFcm.EXPECT().AddBytesRetrans(origFrame.StreamID, protocol.ByteCount(i)-frameHeaderLen)
 					}
 					frames, currentLen := framer.maybePopFramesForRetransmission(protocol.ByteCount(i))
 					if len(frames) == 0 {

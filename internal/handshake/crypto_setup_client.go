@@ -127,7 +127,7 @@ func readBinaryFile(filename string) ([]byte, error) {
 
 	f, err := os.Open(filename)
 	if err != nil {
-	utils.Infof("error when opening handshake cache %s: %s", filename, err)
+		utils.Infof("error when opening handshake cache %s: %s", filename, err)
 		return nil, err
 	}
 	defer f.Close()

@@ -24,5 +24,5 @@ type CryptoSetup interface {
 // TransportParameters are parameters sent to the peer during the handshake
 type TransportParameters struct {
 	RequestConnectionIDTruncation bool
-	CacheHandshake bool
+	CacheHandshake                bool
 }

@@ -11,8 +11,8 @@ import (
 
 var (
 	ErrTooManyPaths = errors.New("PathsFrame: more paths than the maximum enabled")
-	ErrPathsNumber = errors.New("PathsFrame: number of paths advertised and # of paths do not match")
-	ErrMissingRTT = errors.New("PathsFrame: number of paths IDs and number of remote RTTs do not match")
+	ErrPathsNumber  = errors.New("PathsFrame: number of paths advertised and # of paths do not match")
+	ErrMissingRTT   = errors.New("PathsFrame: number of paths IDs and number of remote RTTs do not match")
 )
 
 // A PathsFrame in QUIC
@@ -79,7 +79,7 @@ func ParsePathsFrame(r *bytes.Reader, version protocol.VersionNumber) (*PathsFra
 		if err != nil {
 			return nil, err
 		}
-		frame.RemoteRTTs = append(frame.RemoteRTTs, time.Duration(remoteRTT) * time.Microsecond)
+		frame.RemoteRTTs = append(frame.RemoteRTTs, time.Duration(remoteRTT)*time.Microsecond)
 	}
 
 	return frame, nil

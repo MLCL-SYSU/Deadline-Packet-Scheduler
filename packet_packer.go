@@ -24,8 +24,8 @@ type packetPacker struct {
 	version      protocol.VersionNumber
 	cryptoSetup  handshake.CryptoSetup
 
-	connectionParameters  handshake.ConnectionParametersManager
-	streamFramer          *streamFramer
+	connectionParameters handshake.ConnectionParametersManager
+	streamFramer         *streamFramer
 
 	controlFrames []wire.Frame
 	stopWaiting   map[protocol.PathID]*wire.StopWaitingFrame
@@ -40,14 +40,14 @@ func newPacketPacker(connectionID protocol.ConnectionID,
 	version protocol.VersionNumber,
 ) *packetPacker {
 	return &packetPacker{
-		cryptoSetup:           cryptoSetup,
-		connectionID:          connectionID,
-		connectionParameters:  connectionParameters,
-		perspective:           perspective,
-		version:               version,
-		streamFramer:          streamFramer,
-		stopWaiting:           make(map[protocol.PathID]*wire.StopWaitingFrame),
-		ackFrame:              make(map[protocol.PathID]*wire.AckFrame),
+		cryptoSetup:          cryptoSetup,
+		connectionID:         connectionID,
+		connectionParameters: connectionParameters,
+		perspective:          perspective,
+		version:              version,
+		streamFramer:         streamFramer,
+		stopWaiting:          make(map[protocol.PathID]*wire.StopWaitingFrame),
+		ackFrame:             make(map[protocol.PathID]*wire.AckFrame),
 	}
 }
 
@@ -355,4 +355,3 @@ func (p *packetPacker) canSendData(encLevel protocol.EncryptionLevel) bool {
 	}
 	return encLevel == protocol.EncryptionForwardSecure
 }
-

@@ -60,7 +60,7 @@ func ParseAddAddressFrame(r *bytes.Reader, version protocol.VersionNumber) (*Add
 	// read the TypeByte
 	_, err := r.ReadByte()
 	if err != nil {
-		 return nil, err
+		return nil, err
 	}
 
 	ipv, err := r.ReadByte()
@@ -113,7 +113,7 @@ func ParseAddAddressFrame(r *bytes.Reader, version protocol.VersionNumber) (*Add
 	return frame, nil
 }
 
-func (f* AddAddressFrame) MinLength(version protocol.VersionNumber) (protocol.ByteCount, error) {
+func (f *AddAddressFrame) MinLength(version protocol.VersionNumber) (protocol.ByteCount, error) {
 	switch f.IPVersion {
 	case 4:
 		return 1 + 1 + 4 + 2, nil
