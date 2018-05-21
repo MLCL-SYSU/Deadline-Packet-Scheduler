@@ -7,11 +7,14 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/internal/wire"
+	"math/rand"
 )
 
 type scheduler struct {
 	// XXX Currently round-robin based, inspired from MPTCP scheduler
 	quotas map[protocol.PathID]uint
+	// Selected scheduler
+	SchedulerName string
 }
 
 func (sch *scheduler) setup() {
@@ -204,11 +207,45 @@ pathLoop:
 	return selectedPath
 }
 
+func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	// XXX Avoid using PathID 0 if there is more than 1 path
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+	var availablePaths []protocol.PathID
+
+	for pathID, pth := range s.paths{
+		if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
+			availablePaths = append(availablePaths, pathID)
+		}
+	}
+
+	if len(availablePaths) == 0 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+
+	pathID := rand.Intn(len(availablePaths))
+	utils.Debugf("Selecting path %d", pathID)
+	return s.paths[availablePaths[pathID]]
+}
+
 // Lock of s.paths must be held
 func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
 	// XXX Currently round-robin
-	// TODO select the right scheduler dynamically
-	return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	if sch.SchedulerName == "rtt" {
+		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	}else if sch.SchedulerName == "random"{
+		return sch.selectPathRandom(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	}else{
+		// Default, rtt
+		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	}
 	// return sch.selectPathRoundRobin(s, hasRetransmission, hasStreamRetransmission, fromPth)
 }
 
