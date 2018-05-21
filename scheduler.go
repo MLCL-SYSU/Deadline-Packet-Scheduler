@@ -224,10 +224,7 @@ func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasSt
 	}
 
 	if len(availablePaths) == 0 {
-		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
-			return nil
-		}
-		return s.paths[protocol.InitialPathID]
+		return nil
 	}
 
 	pathID := rand.Intn(len(availablePaths))
