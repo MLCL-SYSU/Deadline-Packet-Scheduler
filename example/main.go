@@ -121,7 +121,19 @@ func main() {
 	certPath := flag.String("certpath", getBuildDir(), "certificate directory")
 	www := flag.String("www", "/var/www", "www data")
 	tcp := flag.Bool("tcp", false, "also listen on TCP")
+	scheduler := flag.String("scheduler", "rtt", "selects scheduler (random, rtt, dqnAgent)")
+	wFile := flag.String("weightsFile", "", "(optional) file with agent weights and bias")
+	training := flag.Bool("training", false, "puts agent in trainning mode")
+	epsilon := flag.Float64("epsilon", 0., "epsilon value for e-greedy policy")
+
 	flag.Parse()
+
+	if *scheduler != "dqnAgent" && *wFile != "" {
+		utils.Infof("Ignoring agent files as you selected scheduler %s", *scheduler)
+	}
+	if !*training && *epsilon != 0.{
+		utils.Infof("Agent is not in training mode. Ignoring epsilon argument")
+	}
 
 	if *verbose {
 		utils.SetLogLevel(utils.LogLevelDebug)
@@ -148,7 +160,7 @@ func main() {
 			if *tcp {
 				err = h2quic.ListenAndServe(bCap, certFile, keyFile, nil)
 			} else {
-				err = h2quic.ListenAndServeQUIC(bCap, certFile, keyFile, nil)
+				err = h2quic.ListenAndServeQUIC(bCap, certFile, keyFile, nil, *scheduler, *wFile, *training, *epsilon)
 			}
 			if err != nil {
 				fmt.Println(err)
