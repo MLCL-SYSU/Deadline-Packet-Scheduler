@@ -487,11 +487,13 @@ func (h *sentPacketHandler) GetGoodput() float64 {
 }
 
 func (h *sentPacketHandler) calculateGoodput(count protocol.ByteCount){
+	h.goodputQueue[time.Now()] = count
+	
 	if len(h.goodputQueue)<2{
 		h.goodput = 0.
 		return
 	}
-	h.goodputQueue[time.Now()] = count
+
 	var oldest, newest time.Time
 	var bytes protocol.ByteCount
 	for when := range h.goodputQueue {
