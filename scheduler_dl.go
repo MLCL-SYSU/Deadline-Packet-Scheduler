@@ -6,6 +6,7 @@ import (
 	"bitbucket.com/marcmolla/gorl"
 	"time"
 	"bitbucket.com/marcmolla/gorl/types"
+	"github.com/lucas-clemente/quic-go/internal/protocol"
 )
 
 var(
@@ -69,8 +70,8 @@ func RewardFinalGoodput(duration time.Duration, maxRTT time.Duration) types.Outp
 	return types.Output(mGoodput/duration.Seconds() * 10000)
 }
 
-func RewardPartial(goodput float64) types.Output{
-	return types.Output(goodput / 10)
+func RewardPartial(ackdBytes protocol.ByteCount, elapsed time.Duration) types.Output{
+	return (types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())) / 50
 }
 
 func getTestRTT(rtt time.Duration)int{
