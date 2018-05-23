@@ -292,7 +292,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 
 	pathID := availablePaths[action]
 	utils.Debugf("Selecting path %d", pathID)
-	return s.paths[availablePaths[pathID]]
+	return s.paths[pathID]
 }
 
 // Lock of s.paths must be held
@@ -351,7 +351,7 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 						sRTT[pathID] = pth.rttStats.SmoothedRTT()
 					}
 				}
-				if sch.Training{
+				if sch.Training && sch.SchedulerName == "dqnAgent"{
 					duration := time.Since(s.sessionCreationTime)
 					var maxRTT time.Duration
 					for pathID := range sRTT{
