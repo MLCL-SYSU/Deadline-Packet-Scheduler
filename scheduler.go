@@ -301,6 +301,8 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	}else if sch.SchedulerName == "random"{
 		return sch.selectPathRandom(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	}else if sch.SchedulerName == "dqnAgent"{
+		return sch.selectPathDQNAgent(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	}else{
 		// Default, rtt
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
