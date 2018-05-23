@@ -488,7 +488,7 @@ func (h *sentPacketHandler) GetGoodput() float64 {
 
 func (h *sentPacketHandler) calculateGoodput(count protocol.ByteCount){
 	h.goodputQueue[time.Now()] = count
-	
+
 	if len(h.goodputQueue)<2{
 		h.goodput = 0.
 		return
@@ -515,7 +515,7 @@ func (h *sentPacketHandler) calculateGoodput(count protocol.ByteCount){
 		}
 	}
 	elapsed := newest.Sub(oldest)
-	h.goodput = float64(bytes)/1024/1024 / elapsed.Seconds()
+	h.goodput = float64(bytes) * 8 /1024/1024 / elapsed.Seconds()
 }
 
 func (h *sentPacketHandler) onPacketAcked(packetElement *PacketElement) {

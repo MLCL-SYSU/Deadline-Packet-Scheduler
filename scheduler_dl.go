@@ -66,7 +66,7 @@ func NormalizeTimes(stat time.Duration) types.Output{
 
 func RewardFinalGoodput(duration time.Duration, maxRTT time.Duration) types.Output {
 	mGoodput := maxGoodput[getTestRTT(maxRTT)]
-	return types.Output(duration.Seconds()/mGoodput * 10000)
+	return types.Output(mGoodput/duration.Seconds() * 10000)
 }
 
 func RewardPartial(goodput float64) types.Output{
