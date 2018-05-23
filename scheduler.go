@@ -24,15 +24,13 @@ type scheduler struct {
 	TrainingAgent agents.TrainingAgent
 	// Normal Agent
 	Agent agents.Agent
-	// Agent output path
-	OutputPath string
 }
 
 func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
 	if sch.SchedulerName == "dqnAgent" {
 		if sch.Training {
-			sch.TrainingAgent = GetTrainingAgent("", "", sch.OutputPath)
+			sch.TrainingAgent = GetTrainingAgent("", "", "")
 		} else {
 			sch.Agent = GetAgent("", "")
 		}
