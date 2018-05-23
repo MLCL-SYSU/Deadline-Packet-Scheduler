@@ -30,12 +30,15 @@ type scheduler struct {
 
 func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
-	if sch.Training{
-		sch.TrainingAgent = GetTrainingAgent("","", sch.OutputPath)
-	}else{
-		sch.Agent = GetAgent("", "")
+	if sch.SchedulerName == "dqnAgent" {
+		if sch.Training {
+			sch.TrainingAgent = GetTrainingAgent("", "", sch.OutputPath)
+		} else {
+			sch.Agent = GetAgent("", "")
+		}
 	}
 }
+
 
 func (sch *scheduler) getRetransmission(s *session) (hasRetransmission bool, retransmitPacket *ackhandler.Packet, pth *path) {
 	// check for retransmissions first
