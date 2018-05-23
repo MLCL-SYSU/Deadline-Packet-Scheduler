@@ -284,8 +284,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]])}
 	if sch.Training{
 		action = sch.TrainingAgent.GetAction(state)
-
-		sch.TrainingAgent.SaveStep(uint64(s.connectionID), 0, state, action)
+		sch.TrainingAgent.SaveStep(uint64(s.connectionID), RewardPartial(goodput), state, action)
 	}else{
 		action = sch.Agent.GetAction(state)
 	}
