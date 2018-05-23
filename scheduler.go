@@ -8,6 +8,9 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/internal/wire"
 	"math/rand"
+
+	"bitbucket.com/marcmolla/gorl/agents"
+	"bitbucket.com/marcmolla/gorl/types"
 )
 
 type scheduler struct {
@@ -15,10 +18,23 @@ type scheduler struct {
 	quotas map[protocol.PathID]uint
 	// Selected scheduler
 	SchedulerName string
+	// Is training?
+	Training bool
+	// Training Agent
+	TrainingAgent agents.TrainingAgent
+	// Normal Agent
+	Agent agents.Agent
+	// Agent output path
+	OutputPath string
 }
 
 func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
+	if sch.Training{
+		sch.TrainingAgent = GetTrainingAgent("","", sch.OutputPath)
+	}else{
+		sch.Agent = GetAgent("", "")
+	}
 }
 
 func (sch *scheduler) getRetransmission(s *session) (hasRetransmission bool, retransmitPacket *ackhandler.Packet, pth *path) {
@@ -232,6 +248,52 @@ func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasSt
 	return s.paths[availablePaths[pathID]]
 }
 
+func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	// XXX Avoid using PathID 0 if there is more than 1 path
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+	var availablePaths []protocol.PathID
+	sRTT := make(map[protocol.PathID]time.Duration)
+	goodput := 0.
+
+	for pathID, pth := range s.paths{
+		if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
+			availablePaths = append(availablePaths, pathID)
+			sRTT[pathID] = pth.rttStats.SmoothedRTT()
+			goodput += pth.sentPacketHandler.GetGoodput()
+		}
+	}
+
+	if len(availablePaths) == 0 {
+		return nil
+	}else if len(availablePaths) == 1{
+		utils.Debugf("Selecting path %d as unique path", availablePaths[0])
+	}
+
+	// sort (kind of...)
+	if availablePaths[1] < availablePaths[0]{
+		availablePaths=[]protocol.PathID{availablePaths[1], availablePaths[0]}
+	}
+
+	var action int
+	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]])}
+	if sch.Training{
+		action = sch.TrainingAgent.GetAction(state)
+
+		sch.TrainingAgent.SaveStep(uint64(s.connectionID), 0, state, action)
+	}else{
+		action = sch.Agent.GetAction(state)
+	}
+
+	pathID := availablePaths[action]
+	utils.Debugf("Selecting path %d", pathID)
+	return s.paths[availablePaths[pathID]]
+}
+
 // Lock of s.paths must be held
 func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
 	// XXX Currently round-robin
@@ -268,6 +330,8 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 	// Packet sent, so update its quota
 	sch.quotas[pth.pathID]++
 
+	sRTT := make(map[protocol.PathID]time.Duration)
+
 	// Provide some logging if it is the last packet
 	for _, frame := range packet.frames {
 		switch frame := frame.(type) {
@@ -280,6 +344,19 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 					sntPkts, sntRetrans, sntLost := pth.sentPacketHandler.GetStatistics()
 					rcvPkts := pth.receivedPacketHandler.GetStatistics()
 					utils.Infof("Path %x: sent %d retrans %d lost %d; rcv %d rtt %v", pathID, sntPkts, sntRetrans, sntLost, rcvPkts, pth.rttStats.SmoothedRTT())
+					if sch.Training{
+						sRTT[pathID] = pth.rttStats.SmoothedRTT()
+					}
+				}
+				if sch.Training{
+					duration := time.Since(s.sessionCreationTime)
+					var maxRTT time.Duration
+					for pathID := range sRTT{
+						if sRTT[pathID] > maxRTT{
+							maxRTT = sRTT[pathID]
+						}
+					}
+					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), RewardFinalGoodput(duration, maxRTT))
 				}
 				s.pathsLock.RUnlock()
 			}

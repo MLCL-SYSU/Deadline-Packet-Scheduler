@@ -85,6 +85,9 @@ type sentPacketHandler struct {
 	packets         uint64
 	retransmissions uint64
 	losses          uint64
+
+	goodputQueue	map[time.Time] protocol.ByteCount
+	goodput				float64
 }
 
 // NewSentPacketHandler creates a new sentPacketHandler
@@ -109,6 +112,7 @@ func NewSentPacketHandler(rttStats *congestion.RTTStats, cong congestion.SendAlg
 		rttStats:           rttStats,
 		congestion:         congestionControl,
 		onRTOCallback:      onRTOCallback,
+		goodputQueue:				make(map[time.Time]protocol.ByteCount),
 	}
 }
 
@@ -478,11 +482,45 @@ func (h *sentPacketHandler) GetAlarmTimeout() time.Time {
 	return h.alarm
 }
 
+func (h *sentPacketHandler) GetGoodput() float64 {
+	return h.goodput
+}
+
+func (h *sentPacketHandler) calculateGoodput(count protocol.ByteCount){
+	if len(h.goodputQueue)<2{
+		h.goodput = 0.
+		return
+	}
+	var oldest, newest time.Time
+	var bytes protocol.ByteCount
+	for when := range h.goodputQueue {
+		if oldest.IsZero() {
+			oldest = when
+			newest = when
+		} else {
+			if time.Since(when) > time.Second {
+				delete(h.goodputQueue, when)
+			} else {
+				if oldest.After(when) {
+					oldest = when
+				}
+				if newest.Before(when) {
+					newest = when
+				}
+				bytes += h.goodputQueue[when]
+			}
+		}
+	}
+	elapsed := newest.Sub(oldest)
+	h.goodput = float64(bytes)/1024/1024 / elapsed.Seconds()
+}
+
 func (h *sentPacketHandler) onPacketAcked(packetElement *PacketElement) {
 	h.bytesInFlight -= packetElement.Value.Length
 	h.rtoCount = 0
 	h.tlpCount = 0
 	h.packetHistory.Remove(packetElement)
+	h.calculateGoodput(packetElement.Value.Length)
 }
 
 func (h *sentPacketHandler) DequeuePacketForRetransmission() *Packet {

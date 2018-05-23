@@ -19,6 +19,7 @@ import (
 
 	"github.com/lucas-clemente/quic-go/h2quic"
 	"github.com/lucas-clemente/quic-go/internal/utils"
+	"github.com/lucas-clemente/quic-go"
 )
 
 type binds []string
@@ -125,6 +126,8 @@ func main() {
 	wFile := flag.String("weightsFile", "", "(optional) file with agent weights and bias")
 	training := flag.Bool("training", false, "puts agent in trainning mode")
 	epsilon := flag.Float64("epsilon", 0., "epsilon value for e-greedy policy")
+	output := flag.String("outputpath", "", "Output path for DL agent")
+	specFile := flag.String("spec", "", "Spec file for DL agent")
 
 	flag.Parse()
 
@@ -133,6 +136,12 @@ func main() {
 	}
 	if !*training && *epsilon != 0.{
 		utils.Infof("Agent is not in training mode. Ignoring epsilon argument")
+	}
+	// Init agents
+	if *training && *scheduler == "dqnAgent"{
+		quic.GetTrainingAgent(*wFile, *specFile, *output)
+	}else{
+		quic.GetAgent(*wFile, *specFile)
 	}
 
 	if *verbose {
