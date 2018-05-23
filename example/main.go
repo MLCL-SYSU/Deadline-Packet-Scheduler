@@ -139,7 +139,7 @@ func main() {
 	}
 	// Init agents
 	if *training && *scheduler == "dqnAgent"{
-		quic.GetTrainingAgent(*wFile, *specFile, *output)
+		quic.GetTrainingAgent(*wFile, *specFile, *output, *epsilon)
 	}else if *scheduler == "dqnAgent"{
 		quic.GetAgent(*wFile, *specFile)
 	}

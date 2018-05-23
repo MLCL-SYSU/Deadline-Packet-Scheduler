@@ -30,7 +30,7 @@ func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
 	if sch.SchedulerName == "dqnAgent" {
 		if sch.Training {
-			sch.TrainingAgent = GetTrainingAgent("", "", "")
+			sch.TrainingAgent = GetTrainingAgent("", "", "", 0.)
 		} else {
 			sch.Agent = GetAgent("", "")
 		}

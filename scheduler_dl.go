@@ -40,7 +40,7 @@ func GetAgent(weightsFile string, specFile string) agents.Agent{
 	return agent
 }
 
-func GetTrainingAgent(weightsFile string, specFile string, outputPath string) agents.TrainingAgent{
+func GetTrainingAgent(weightsFile string, specFile string, outputPath string, epsilon float64) agents.TrainingAgent{
 	var spec []byte
 	var err error
 	if specFile != ""{
@@ -50,7 +50,7 @@ func GetTrainingAgent(weightsFile string, specFile string, outputPath string) ag
 		}
 	}
 
-	agent := gorl.GetTrainingInstance(string(spec), outputPath)
+	agent := gorl.GetTrainingInstance(string(spec), outputPath, float32(epsilon))
 	if weightsFile != ""{
 		err = agent.LoadWeights(weightsFile)
 		if err != nil{
