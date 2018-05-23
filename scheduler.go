@@ -273,6 +273,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		return nil
 	}else if len(availablePaths) == 1{
 		utils.Debugf("Selecting path %d as unique path", availablePaths[0])
+		return s.paths[availablePaths[0]]
 	}
 
 	// sort (kind of...)
