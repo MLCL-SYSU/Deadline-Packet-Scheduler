@@ -32,6 +32,8 @@ type scheduler struct {
 
 func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
+
+	sch.cachedState = types.Vector{-1, -1}
 	if sch.SchedulerName == "dqnAgent" {
 		if sch.Training {
 			sch.TrainingAgent = GetTrainingAgent("", "", "", 0.)
