@@ -67,9 +67,9 @@ func NormalizeTimes(stat time.Duration) types.Output{
 
 func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
 	if quota1 >= quota2{
-		return [2]types.Output{1., 0.}
+		return [2]types.Output{1., types.Output(quota2/quota1)}
 	}
-	return [2]types.Output{0., 1.}
+	return [2]types.Output{types.Output(quota1/quota2), 1.}
 }
 
 func RewardFinalGoodput(duration time.Duration, maxRTT time.Duration) types.Output {
