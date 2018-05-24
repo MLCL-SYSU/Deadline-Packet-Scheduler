@@ -526,7 +526,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 			if err == ackhandler.ErrTooManyTrackedSentPackets{
 				utils.Errorf("Closing episode")
 				if sch.SchedulerName == "dqnAgent" && sch.Training{
-					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -10000)
+					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100)
 				}
 			}
 			return err
