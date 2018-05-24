@@ -66,10 +66,13 @@ func NormalizeTimes(stat time.Duration) types.Output{
 }
 
 func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
+	q1 := types.Output(quota1)
+	q2 := types.Output(quota2)
+
 	if quota1 > quota2{
-		return [2]types.Output{1., types.Output(quota2/quota1)}
+		return [2]types.Output{1., q2/q1}
 	}else if quota1 < quota2{
-		return [2]types.Output{types.Output(quota1/quota2), 1.}
+		return [2]types.Output{q1/q2, 1.}
 	}
 	return [2]types.Output{0., 0.}
 }
