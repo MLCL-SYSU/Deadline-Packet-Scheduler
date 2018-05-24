@@ -24,6 +24,10 @@ type scheduler struct {
 	TrainingAgent agents.TrainingAgent
 	// Normal Agent
 	Agent agents.Agent
+
+	// Cached state for training
+	cachedState		types.Vector
+	cachedPathID	protocol.PathID
 }
 
 func (sch *scheduler) setup() {
@@ -284,10 +288,15 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	var action int
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]])}
 	if sch.Training{
+		if state.IsEqual(sch.cachedState){
+			return s.paths[sch.cachedPathID]
+		}
+		sch.cachedState = state
 		action = sch.TrainingAgent.GetAction(state)
 		sch.TrainingAgent.SaveStep(uint64(s.connectionID),
 			RewardPartial(ackBytes, time.Since(s.sessionCreationTime)),
 			state, action)
+		sch.cachedPathID = availablePaths[action]
 	}else{
 		action = sch.Agent.GetAction(state)
 	}
