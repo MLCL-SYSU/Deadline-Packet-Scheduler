@@ -65,6 +65,13 @@ func NormalizeTimes(stat time.Duration) types.Output{
 	return types.Output(stat.Nanoseconds()) / types.Output(time.Millisecond.Nanoseconds()*150)
 }
 
+func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
+	if quota1 >= quota2{
+		return [2]types.Output{1., 0.}
+	}
+	return [2]types.Output{0., 1.}
+}
+
 func RewardFinalGoodput(duration time.Duration, maxRTT time.Duration) types.Output {
 	mGoodput := maxGoodput[getTestRTT(maxRTT)]
 	return types.Output(mGoodput/duration.Seconds() * 10000)
