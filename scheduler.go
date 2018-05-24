@@ -523,6 +523,12 @@ func (sch *scheduler) sendPacket(s *session) error {
 
 		pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth)
 		if err != nil {
+			if err == ackhandler.ErrTooManyTrackedSentPackets{
+				utils.Errorf("Closing episode")
+				if sch.SchedulerName == "dqnAgent" && sch.Training{
+					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -10000)
+				}
+			}
 			return err
 		}
 		windowUpdateFrames = nil
