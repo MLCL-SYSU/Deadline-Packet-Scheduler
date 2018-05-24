@@ -291,6 +291,8 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]])}
 	if sch.Training{
 		if state.IsEqual(sch.cachedState){
+			utils.Debugf("State %s is equal to cached state %s", state, sch.cachedState)
+			utils.Debugf("Selecting path %d", sch.cachedPathID)
 			return s.paths[sch.cachedPathID]
 		}
 		sch.cachedState = state
