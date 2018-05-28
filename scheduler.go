@@ -154,12 +154,12 @@ func (sch *scheduler) selectPathLowLatency(s *session, hasRetransmission bool, h
 	// XXX Avoid using PathID 0 if there is more than 1 path
 	if len(s.paths) <= 1 {
 		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
-			utils.Errorf("Only initial path and sending not allowed without retransmission")
-			utils.Errorf("SCH RTT - NIL")
+			utils.Debugf("Only initial path and sending not allowed without retransmission")
+			utils.Debugf("SCH RTT - NIL")
 			return nil
 		}
-		utils.Errorf("Only initial path and sending is allowed or has retransmission")
-		utils.Errorf("SCH RTT - InitialPath")
+		utils.Debugf("Only initial path and sending is allowed or has retransmission")
+		utils.Debugf("SCH RTT - InitialPath")
 		return s.paths[protocol.InitialPathID]
 	}
 
@@ -173,8 +173,8 @@ func (sch *scheduler) selectPathLowLatency(s *session, hasRetransmission bool, h
 			}
 			// The congestion window was checked when duplicating the packet
 			if sch.quotas[pathID] < currentQuota {
-				utils.Errorf("has ret, has stream ret and sRTT == 0")
-				utils.Errorf("SCH RTT - Selecting %d by low quota", pathID)
+				utils.Debugf("has ret, has stream ret and sRTT == 0")
+				utils.Debugf("SCH RTT - Selecting %d by low quota", pathID)
 				return pth
 			}
 		}
@@ -189,13 +189,13 @@ pathLoop:
 	for pathID, pth := range s.paths {
 		// Don't block path usage if we retransmit, even on another path
 		if !hasRetransmission && !pth.SendingAllowed() {
-			utils.Errorf("Discarding %d - no has ret and sending is not allowed ", pathID)
+			utils.Debugf("Discarding %d - no has ret and sending is not allowed ", pathID)
 			continue pathLoop
 		}
 
 		// If this path is potentially failed, do not consider it for sending
 		if pth.potentiallyFailed.Get() {
-			utils.Errorf("Discarding %d - potentially failed", pathID)
+			utils.Debugf("Discarding %d - potentially failed", pathID)
 			continue pathLoop
 		}
 
@@ -209,7 +209,7 @@ pathLoop:
 		// Prefer staying single-path if not blocked by current path
 		// Don't consider this sample if the smoothed RTT is 0
 		if lowerRTT != 0 && currentRTT == 0 {
-			utils.Errorf("Discarding %d - no has ret and sending is not allowed ", pathID)
+			utils.Debugf("Discarding %d - no has ret and sending is not allowed ", pathID)
 			continue pathLoop
 		}
 
@@ -222,13 +222,13 @@ pathLoop:
 			}
 			lowerQuota, _ := sch.quotas[selectedPathID]
 			if selectedPath != nil && currentQuota > lowerQuota {
-				utils.Errorf("Discarding %d - higher quota ", pathID)
+				utils.Debugf("Discarding %d - higher quota ", pathID)
 				continue pathLoop
 			}
 		}
 
 		if currentRTT != 0 && lowerRTT != 0 && selectedPath != nil && currentRTT >= lowerRTT {
-			utils.Errorf("Discarding %d - higher SRTT ", pathID)
+			utils.Debugf("Discarding %d - higher SRTT ", pathID)
 			continue pathLoop
 		}
 
@@ -237,7 +237,7 @@ pathLoop:
 		selectedPath = pth
 		selectedPathID = pathID
 	}
-	utils.Errorf("SCH RTT - Selecting %d by low RTT: %f", selectedPathID, lowerRTT)
+	utils.Debugf("SCH RTT - Selecting %d by low RTT: %f", selectedPathID, lowerRTT)
 	return selectedPath
 }
 
