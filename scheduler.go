@@ -237,7 +237,7 @@ pathLoop:
 		selectedPath = pth
 		selectedPathID = pathID
 	}
-	utils.Errorf("SCH RTT - Selecting %d", selectedPathID)
+	utils.Errorf("SCH RTT - Selecting %d by low RTT: %f", selectedPathID, lowerRTT)
 	return selectedPath
 }
 
