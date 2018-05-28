@@ -174,7 +174,7 @@ func (sch *scheduler) selectPathLowLatency(s *session, hasRetransmission bool, h
 			// The congestion window was checked when duplicating the packet
 			if sch.quotas[pathID] < currentQuota {
 				utils.Errorf("has ret, has stream ret and sRTT == 0")
-				utils.Errorf("SCH RTT - Selecting %d by low quota", pth)
+				utils.Errorf("SCH RTT - Selecting %d by low quota", pathID)
 				return pth
 			}
 		}
@@ -237,7 +237,7 @@ pathLoop:
 		selectedPath = pth
 		selectedPathID = pathID
 	}
-	utils.Errorf("SCH RTT - Selecting %d", selectedPath)
+	utils.Errorf("SCH RTT - Selecting %d", selectedPathID)
 	return selectedPath
 }
 
