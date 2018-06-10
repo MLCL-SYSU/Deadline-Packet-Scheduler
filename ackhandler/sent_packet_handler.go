@@ -521,6 +521,9 @@ func (h *sentPacketHandler) SendingAllowed() bool {
 		utils.Debugf("Congestion limited: bytes in flight %d, window %d",
 			h.bytesInFlight,
 			h.congestion.GetCongestionWindow())
+	}else if maxTrackedLimited{
+		utils.Debugf("Max tracked limited: %d",
+			protocol.PacketNumber(len(h.retransmissionQueue)+h.packetHistory.Len()))
 	}
 	// Workaround for #555:
 	// Always allow sending of retransmissions. This should probably be limited
