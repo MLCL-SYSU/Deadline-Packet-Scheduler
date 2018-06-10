@@ -151,6 +151,7 @@ pathLoop:
 }
 
 func (sch *scheduler) selectPathLowLatency(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	utils.Debugf("selectPathLowLatency")
 	// XXX Avoid using PathID 0 if there is more than 1 path
 	if len(s.paths) <= 1 {
 		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
@@ -387,7 +388,7 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 							maxRTT = sRTT[pathID]
 						}
 					}
-					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), RewardFinalGoodput(duration, maxRTT))
+					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), RewardFinalGoodput(duration, maxRTT), false)
 				}
 				s.pathsLock.RUnlock()
 			}
@@ -537,7 +538,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 			if err == ackhandler.ErrTooManyTrackedSentPackets{
 				utils.Errorf("Closing episode")
 				if sch.SchedulerName == "dqnAgent" && sch.Training{
-					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100)
+					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
 				}
 			}
 			return err
