@@ -31,6 +31,7 @@ type SentPacketHandler interface {
 	GetStatistics() (uint64, uint64, uint64)
 
 	GetAckedBytes() protocol.ByteCount
+	GetSentBytes() 	protocol.ByteCount
 }
 
 // ReceivedPacketHandler handles ACKs needed to send for incoming packets

@@ -277,13 +277,14 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	}
 	var availablePaths []protocol.PathID
 	sRTT := make(map[protocol.PathID]time.Duration)
-	var ackBytes protocol.ByteCount
+	var ackBytes, sentBytes protocol.ByteCount
 
 	for pathID, pth := range s.paths{
 		if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
 			availablePaths = append(availablePaths, pathID)
 			sRTT[pathID] = pth.rttStats.SmoothedRTT()
 			ackBytes += pth.sentPacketHandler.GetAckedBytes()
+			sentBytes += pth.sentPacketHandler.GetSentBytes()
 		}
 	}
 
@@ -311,8 +312,9 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		}
 		sch.cachedState = state
 		action = sch.TrainingAgent.GetAction(state)
+
 		sch.TrainingAgent.SaveStep(uint64(s.connectionID),
-			RewardPartial(ackBytes, time.Since(s.sessionCreationTime)),
+			RewardPartial(sentBytes, time.Since(s.sessionCreationTime)),
 			state, action)
 		sch.cachedPathID = availablePaths[action]
 	}else{

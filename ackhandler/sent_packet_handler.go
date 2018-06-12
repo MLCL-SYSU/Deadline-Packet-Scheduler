@@ -87,6 +87,7 @@ type sentPacketHandler struct {
 	losses          uint64
 
 	ackedBytes			protocol.ByteCount
+	sentBytes				protocol.ByteCount
 }
 
 // NewSentPacketHandler creates a new sentPacketHandler
@@ -161,6 +162,7 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 	if isRetransmittable {
 		packet.SendTime = now
 		h.bytesInFlight += packet.Length
+		h.sentBytes += packet.Length
 		h.packetHistory.PushBack(*packet)
 		h.numNonRetransmittablePackets = 0
 	} else {
@@ -484,6 +486,9 @@ func (h *sentPacketHandler) GetAckedBytes() protocol.ByteCount {
 	return h.ackedBytes
 }
 
+func (h *sentPacketHandler) GetSentBytes() protocol.ByteCount {
+	return h.sentBytes
+}
 func (h *sentPacketHandler) onPacketAcked(packetElement *PacketElement) {
 	h.bytesInFlight -= packetElement.Value.Length
 	h.rtoCount = 0
