@@ -128,6 +128,7 @@ func main() {
 	epsilon := flag.Float64("epsilon", 0., "epsilon value for e-greedy policy")
 	output := flag.String("outputpath", "", "Output path for DL agent")
 	specFile := flag.String("spec", "", "Spec file for DL agent")
+	rtt := flag.Int("rtt", 0, "rtt in ms of the primary path")
 
 	flag.Parse()
 
@@ -139,7 +140,7 @@ func main() {
 	}
 	// Init agents
 	if *training && *scheduler == "dqnAgent"{
-		quic.GetTrainingAgent(*wFile, *specFile, *output, *epsilon)
+		quic.GetTrainingAgent(*wFile, *specFile, *output, *epsilon, *rtt)
 	}else if *scheduler == "dqnAgent"{
 		quic.GetAgent(*wFile, *specFile)
 	}

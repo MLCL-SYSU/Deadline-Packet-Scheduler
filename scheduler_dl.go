@@ -11,15 +11,16 @@ import (
 
 var(
 	maxGoodput = map[int]float64{
-		0:		0.898005552,
-		50:		0.976690572,
-		100:	1.150461995,
-		150:	1.293399122,
-		200:	1.38544436,
-		250:	1.445745136,
-		300:	1.485911182,
-		700:	1.649954398,
+		0:		0.100312373,
+		10:		0.113738699,
+		20:		0.12774865,
+		30:		0.137545458,
+		40:		0.143708207,
+		50:		0.149168649,
+		60:		0.155744972,
+		70:		0.159616985,
 	}
+	testingRTT = 0
 )
 
 func GetAgent(weightsFile string, specFile string) agents.Agent{
@@ -41,7 +42,7 @@ func GetAgent(weightsFile string, specFile string) agents.Agent{
 	return agent
 }
 
-func GetTrainingAgent(weightsFile string, specFile string, outputPath string, epsilon float64) agents.TrainingAgent{
+func GetTrainingAgent(weightsFile string, specFile string, outputPath string, epsilon float64, rtt int) agents.TrainingAgent{
 	var spec []byte
 	var err error
 	if specFile != ""{
@@ -49,6 +50,9 @@ func GetTrainingAgent(weightsFile string, specFile string, outputPath string, ep
 		if err != nil{
 			panic(err)
 		}
+	}
+	if rtt >= 0{
+		testingRTT = rtt
 	}
 
 	agent := gorl.GetTrainingInstance(string(spec), outputPath, float32(epsilon))
@@ -77,32 +81,12 @@ func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
 	return [2]types.Output{0., 0.}
 }
 
-func RewardFinalGoodput(duration time.Duration, maxRTT time.Duration) types.Output {
-	mGoodput := maxGoodput[getTestRTT(maxRTT)]
-	return types.Output(mGoodput/duration.Seconds() * 10000)
+func RewardFinalGoodput(duration time.Duration, _ time.Duration) types.Output {
+	mGoodput := maxGoodput[testingRTT]
+	return types.Output(mGoodput/duration.Seconds())
 }
 
 func RewardPartial(ackdBytes protocol.ByteCount, elapsed time.Duration) types.Output{
-	return (types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())) / 50
-}
-
-func getTestRTT(rtt time.Duration)int{
-	switch{
-	case rtt > 700:
-		return 700
-	case rtt > 300:
-		return 300
-	case rtt > 250:
-		return 250
-	case rtt > 200:
-		return 200
-	case rtt > 150:
-		return 150
-	case rtt > 100:
-		return 100
-	case rtt > 50:
-		return 50
-	default:
-		return 0
-	}
+	//return (types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())) / 50
+	return types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())
 }

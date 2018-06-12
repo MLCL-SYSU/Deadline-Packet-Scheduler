@@ -36,7 +36,7 @@ func (sch *scheduler) setup() {
 	sch.cachedState = types.Vector{-1, -1}
 	if sch.SchedulerName == "dqnAgent" {
 		if sch.Training {
-			sch.TrainingAgent = GetTrainingAgent("", "", "", 0.)
+			sch.TrainingAgent = GetTrainingAgent("", "", "", 0., -1)
 		} else {
 			sch.Agent = GetAgent("", "")
 		}
