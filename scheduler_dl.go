@@ -86,7 +86,11 @@ func RewardFinalGoodput(duration time.Duration, _ time.Duration) types.Output {
 	return types.Output(8) / types.Output(duration.Seconds())
 }
 
-func RewardPartial(ackdBytes protocol.ByteCount, elapsed time.Duration) types.Output{
+func RewardPartial(ackdBytes protocol.ByteCount, elapsed time.Duration, retrans bool) types.Output{
 	//return (types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())) / 50
-	return types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())
+	mul := 1
+	if retrans{
+		mul = -1
+	}
+	return types.Output(mul)* types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())
 }

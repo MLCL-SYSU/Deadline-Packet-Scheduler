@@ -28,10 +28,14 @@ type scheduler struct {
 	// Cached state for training
 	cachedState		types.Vector
 	cachedPathID	protocol.PathID
+
+	// Retrans cache
+	retrans				map[protocol.PathID] uint64
 }
 
 func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
+	sch.retrans = make(map[protocol.PathID]uint64)
 
 	sch.cachedState = types.Vector{-1, -1}
 	if sch.SchedulerName == "dqnAgent" {
@@ -279,6 +283,9 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	sRTT := make(map[protocol.PathID]time.Duration)
 	congW := make(map[protocol.PathID]float64)
 	var ackBytes, sentBytes protocol.ByteCount
+	var nRetrans uint64
+	var retransR bool
+
 
 	for pathID, pth := range s.paths{
 		if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
@@ -287,6 +294,11 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 			ackBytes += pth.sentPacketHandler.GetAckedBytes()
 			sentBytes += pth.sentPacketHandler.GetSentBytes()
 			congW[pathID] = pth.sentPacketHandler.GetCongestion()
+			_, nRetrans, _ = pth.sentPacketHandler.GetStatistics()
+			if sch.retrans[pathID] < nRetrans{
+				retransR = true
+			}
+			sch.retrans[pathID] = nRetrans
 		}
 	}
 
@@ -316,7 +328,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		action = sch.TrainingAgent.GetAction(state)
 
 		sch.TrainingAgent.SaveStep(uint64(s.connectionID),
-			RewardPartial(sentBytes, time.Since(s.sessionCreationTime)),
+			RewardPartial(sentBytes, time.Since(s.sessionCreationTime), retransR),
 			state, action)
 		sch.cachedPathID = availablePaths[action]
 	}else{
