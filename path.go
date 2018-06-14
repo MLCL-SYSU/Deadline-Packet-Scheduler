@@ -124,7 +124,7 @@ runLoop:
 }
 
 func (p *path) SendingAllowed() bool {
-	utils.Debugf("Path is open?: %t", p.open.Get())
+	//utils.Debugf("Path is open?: %t", p.open.Get())
 	return p.open.Get() && p.sentPacketHandler.SendingAllowed()
 }
 
