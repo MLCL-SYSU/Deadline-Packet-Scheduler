@@ -490,8 +490,12 @@ func (h *sentPacketHandler) GetSentBytes() protocol.ByteCount {
 	return h.sentBytes
 }
 
-func (h *sentPacketHandler) GetCongestion() float64{
-	return (float64(h.congestion.GetCongestionWindow()) - float64(h.bytesInFlight)) / float64(h.congestion.GetCongestionWindow())
+func (h *sentPacketHandler) GetCongestionWindow() protocol.ByteCount{
+	return h.congestion.GetCongestionWindow()
+}
+
+func (h *sentPacketHandler) GetBytesInFlight() protocol.ByteCount {
+	return h.bytesInFlight
 }
 
 func (h *sentPacketHandler) onPacketAcked(packetElement *PacketElement) {
