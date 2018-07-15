@@ -823,7 +823,7 @@ func (s *session) logPacket(packet *packedPacket, pathID protocol.PathID) {
 		return
 	}
 	utils.Debugf("Time: %f", time.Since(s.sessionCreationTime).Nanoseconds()/1000000)
-	utils.Debugf(("Path: %d, Cong: %f"), pathID, s.paths[pathID].sentPacketHandler.GetCongestion())
+	utils.Debugf(("Path: %d, Cong: %f"), pathID, s.paths[pathID].sentPacketHandler.GetCongestionWindow())
 	utils.Debugf("-> Sending packet 0x%x (%d bytes) for connection %x on path %x, %s", packet.number, len(packet.raw), s.connectionID, pathID, packet.encryptionLevel)
 	for _, frame := range packet.frames {
 		wire.LogFrame(frame, true)
