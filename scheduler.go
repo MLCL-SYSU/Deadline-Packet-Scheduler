@@ -392,6 +392,8 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 					sntPkts, sntRetrans, sntLost := pth.sentPacketHandler.GetStatistics()
 					rcvPkts := pth.receivedPacketHandler.GetStatistics()
 					utils.Infof("Path %x: sent %d retrans %d lost %d; rcv %d rtt %v", pathID, sntPkts, sntRetrans, sntLost, rcvPkts, pth.rttStats.SmoothedRTT())
+					// TODO: Remove it
+					utils.Infof("Congestion Window: %d", pth.sentPacketHandler.GetCongestionWindow())
 					if sch.Training{
 						sRTT[pathID] = pth.rttStats.SmoothedRTT()
 					}
