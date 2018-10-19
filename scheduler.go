@@ -282,6 +282,8 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	var availablePaths []protocol.PathID
 	sRTT := make(map[protocol.PathID]time.Duration)
 	congW := make(map[protocol.PathID]protocol.ByteCount)
+	congStatus := make(map[protocol.PathID]protocol.ByteCount)
+
 	var ackBytes, sentBytes protocol.ByteCount
 	var nRetrans uint64
 	var retransR bool
@@ -294,6 +296,8 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 			ackBytes += pth.sentPacketHandler.GetAckedBytes()
 			sentBytes += pth.sentPacketHandler.GetSentBytes()
 			congW[pathID] = pth.sentPacketHandler.GetCongestionWindow()
+			congStatus[pathID] = pth.sentPacketHandler.GetBytesInFlight() / pth.sentPacketHandler.GetCongestionWindow()
+
 			_, nRetrans, _ = pth.sentPacketHandler.GetStatistics()
 			if sch.retrans[pathID] < nRetrans{
 				retransR = true
@@ -317,7 +321,8 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	var action int
 
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]]),
-	types.Output(congW[availablePaths[0]]), types.Output(congW[availablePaths[1]])}
+	types.Output(congW[availablePaths[0]])/300, types.Output(congW[availablePaths[1]])/300,
+	types.Output(congStatus[availablePaths[0]]), types.Output(congStatus[availablePaths[0]])}
 	if sch.Training{
 		if state.IsEqual(sch.cachedState){
 			utils.Debugf("State %s is equal to cached state %s", state, sch.cachedState)
