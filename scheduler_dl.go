@@ -83,7 +83,7 @@ func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
 
 func RewardFinalGoodput(duration time.Duration, _ time.Duration) types.Output {
 	//mGoodput := maxGoodput[testingRTT]
-	return types.Output(8) / types.Output(duration.Seconds())
+	return types.Output(8) / types.Output(duration.Seconds()) * 5.
 }
 
 func RewardPartial(ackdBytes protocol.ByteCount, elapsed time.Duration, retrans bool) types.Output{
