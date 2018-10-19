@@ -321,7 +321,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	var action int
 
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]]),
-	types.Output(congW[availablePaths[0]]/300/protocol.DefaultTCPMSS), types.Output(congW[availablePaths[1]]/300/protocol.DefaultTCPMSS),
+	types.Output(congW[availablePaths[0]])/300.0/types.Output(protocol.DefaultTCPMSS), types.Output(congW[availablePaths[1]])/300.0/types.Output(protocol.DefaultTCPMSS),
 	congStatus[availablePaths[0]], congStatus[availablePaths[0]]}
 	if sch.Training{
 		if state.IsEqual(sch.cachedState){
