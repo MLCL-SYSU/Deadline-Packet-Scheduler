@@ -322,7 +322,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]]),
 	types.Output(congW[availablePaths[0]])/300.0/types.Output(protocol.DefaultTCPMSS), types.Output(congW[availablePaths[1]])/300.0/types.Output(protocol.DefaultTCPMSS),
-	congStatus[availablePaths[0]], congStatus[availablePaths[0]]}
+	congStatus[availablePaths[0]], congStatus[availablePaths[1]]}
 	if sch.Training{
 		if state.IsEqual(sch.cachedState){
 			utils.Debugf("State %s is equal to cached state %s", state, sch.cachedState)
