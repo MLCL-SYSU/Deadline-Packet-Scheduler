@@ -295,7 +295,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		cong := pth.sentPacketHandler.GetCongestionWindow()-pth.sentPacketHandler.GetBytesInFlight()
 		allowed := pth.SendingAllowed() || (cong <= 0 && float32(cong) >=  -float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
 		if !pth.SendingAllowed(){
-			utils.Errorf("Not allowed: %f, %f", cong, -float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
+			utils.Errorf("Not allowed: %f, %f", float32(cong), -float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
 		}
 		if pathID != protocol.InitialPathID && (allowed || hasRetransmission){
 			availablePaths = append(availablePaths, pathID)
