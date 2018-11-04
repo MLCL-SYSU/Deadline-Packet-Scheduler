@@ -128,7 +128,7 @@ func main() {
 	epsilon := flag.Float64("epsilon", 0., "epsilon value for e-greedy policy")
 	output := flag.String("outputpath", "", "Output path for DL agent")
 	specFile := flag.String("spec", "", "Spec file for DL agent")
-	rtt := flag.Int("rtt", 0, "rtt in ms of the primary path")
+	valid_congestion := flag.Int("validCongestion", 0, "% of allowed congestion")
 
 	flag.Parse()
 
@@ -140,7 +140,7 @@ func main() {
 	}
 	// Init agents
 	if *training && *scheduler == "dqnAgent"{
-		quic.GetTrainingAgent(*wFile, *specFile, *output, *epsilon, *rtt)
+		quic.GetTrainingAgent(*wFile, *specFile, *output, *epsilon)
 	}else if *scheduler == "dqnAgent"{
 		quic.GetAgent(*wFile, *specFile)
 	}
@@ -170,7 +170,7 @@ func main() {
 			if *tcp {
 				err = h2quic.ListenAndServe(bCap, certFile, keyFile, nil)
 			} else {
-				err = h2quic.ListenAndServeQUIC(bCap, certFile, keyFile, nil, *scheduler, *wFile, *training, *epsilon)
+				err = h2quic.ListenAndServeQUIC(bCap, certFile, keyFile, nil, *scheduler, *wFile, *training, *epsilon, *valid_congestion)
 			}
 			if err != nil {
 				fmt.Println(err)

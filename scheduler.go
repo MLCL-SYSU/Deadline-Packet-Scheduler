@@ -29,6 +29,8 @@ type scheduler struct {
 	cachedState		types.Vector
 	cachedPathID	protocol.PathID
 
+	AllowedCongestion int
+
 	// Retrans cache
 	retrans				map[protocol.PathID] uint64
 }
@@ -40,7 +42,7 @@ func (sch *scheduler) setup() {
 	sch.cachedState = types.Vector{-1, -1}
 	if sch.SchedulerName == "dqnAgent" {
 		if sch.Training {
-			sch.TrainingAgent = GetTrainingAgent("", "", "", 0., -1)
+			sch.TrainingAgent = GetTrainingAgent("", "", "", 0.)
 		} else {
 			sch.Agent = GetAgent("", "")
 		}
@@ -290,7 +292,9 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 
 
 	for pathID, pth := range s.paths{
-		if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
+		cong := pth.sentPacketHandler.GetCongestionWindow()-pth.sentPacketHandler.GetBytesInFlight()
+		allowed := pth.SendingAllowed() || (cong <= 0 && float32(cong) >=  float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
+		if pathID != protocol.InitialPathID && (allowed || hasRetransmission){
 			availablePaths = append(availablePaths, pathID)
 			sRTT[pathID] = pth.rttStats.SmoothedRTT()
 			ackBytes += pth.sentPacketHandler.GetAckedBytes()

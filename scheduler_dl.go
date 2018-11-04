@@ -9,20 +9,6 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 )
 
-var(
-	maxGoodput = map[int]float64{
-		0:		0.100312373,
-		10:		0.113738699,
-		20:		0.12774865,
-		30:		0.137545458,
-		40:		0.143708207,
-		50:		0.149168649,
-		60:		0.155744972,
-		70:		0.159616985,
-	}
-	testingRTT = 0
-)
-
 func GetAgent(weightsFile string, specFile string) agents.Agent{
 	var spec []byte
 	var err error
@@ -42,17 +28,14 @@ func GetAgent(weightsFile string, specFile string) agents.Agent{
 	return agent
 }
 
-func GetTrainingAgent(weightsFile string, specFile string, outputPath string, epsilon float64, rtt int) agents.TrainingAgent{
+func GetTrainingAgent(weightsFile string, specFile string, outputPath string, epsilon float64) agents.TrainingAgent{
 	var spec []byte
 	var err error
-	if specFile != ""{
+	if specFile != "" {
 		spec, err = ioutil.ReadFile(specFile)
-		if err != nil{
+		if err != nil {
 			panic(err)
 		}
-	}
-	if rtt >= 0{
-		testingRTT = rtt
 	}
 
 	agent := gorl.GetTrainingInstance(string(spec), outputPath, float32(epsilon))
@@ -69,7 +52,7 @@ func NormalizeTimes(stat time.Duration) types.Output{
 	return types.Output(stat.Nanoseconds()) / types.Output(time.Millisecond.Nanoseconds()*150)
 }
 
-func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
+/*func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
 	q1 := types.Output(quota1)
 	q2 := types.Output(quota2)
 
@@ -79,10 +62,9 @@ func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
 		return [2]types.Output{q1/q2, 1.}
 	}
 	return [2]types.Output{0., 0.}
-}
+}*/
 
 func RewardFinalGoodput(duration time.Duration, _ time.Duration) types.Output {
-	//mGoodput := maxGoodput[testingRTT]
 	return types.Output(8) / types.Output(duration.Seconds()) * 5.
 }
 

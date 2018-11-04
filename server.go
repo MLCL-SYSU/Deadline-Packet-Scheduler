@@ -209,6 +209,7 @@ func populateServerConfig(config *Config) *Config {
 		WeightsFile:													 config.WeightsFile,
 		Training:															 config.Training,
 		Epsilon:															 config.Epsilon,
+		AllowedCongestion:											config.AllowedCongestion,
 	}
 }
 

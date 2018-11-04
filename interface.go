@@ -128,6 +128,7 @@ type Config struct {
 	WeightsFile   string
 	Training      bool
 	Epsilon       float64
+	AllowedCongestion	int
 }
 
 // A Listener for incoming QUIC connections
