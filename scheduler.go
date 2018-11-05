@@ -259,7 +259,11 @@ func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasSt
 	var availablePaths []protocol.PathID
 
 	for pathID, pth := range s.paths{
-		if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
+		cong := float32(pth.sentPacketHandler.GetCongestionWindow())-float32(pth.sentPacketHandler.GetBytesInFlight())
+		allowed := pth.SendingAllowed() || (cong <= 0 && float32(cong) >=  -float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
+
+		if pathID != protocol.InitialPathID && (allowed || hasRetransmission){
+		//if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
 			availablePaths = append(availablePaths, pathID)
 		}
 	}
@@ -294,7 +298,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	for pathID, pth := range s.paths{
 		cong := float32(pth.sentPacketHandler.GetCongestionWindow())-float32(pth.sentPacketHandler.GetBytesInFlight())
 		allowed := pth.SendingAllowed() || (cong <= 0 && float32(cong) >=  -float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
-		
+
 		if pathID != protocol.InitialPathID && (allowed || hasRetransmission){
 			availablePaths = append(availablePaths, pathID)
 			sRTT[pathID] = pth.rttStats.SmoothedRTT()
