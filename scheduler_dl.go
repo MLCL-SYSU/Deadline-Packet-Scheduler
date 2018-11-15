@@ -68,6 +68,7 @@ func RewardFinalGoodput(duration time.Duration, _ time.Duration) types.Output {
 	return types.Output(8) / types.Output(duration.Seconds()) * 5.
 }
 
+//TODO: Maximize the windows size?? vs allowing negative quota
 func RewardPartial(ackdBytes protocol.ByteCount, elapsed time.Duration, retrans bool) types.Output{
 	//return (types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())) / 50
 	mul := 1
