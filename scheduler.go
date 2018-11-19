@@ -277,6 +277,19 @@ func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasSt
 	return s.paths[availablePaths[pathID]]
 }
 
+func (sch *scheduler) selectFirstPath(s * session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+	if s.paths[1].SendingAllowed() || hasRetransmission {
+		return s.paths[1]
+	}
+	return nil
+}
+
 func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
 	// XXX Avoid using PathID 0 if there is more than 1 path
 	if len(s.paths) <= 1 {
@@ -361,8 +374,10 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	}else if sch.SchedulerName == "random"{
 		return sch.selectPathRandom(s, hasRetransmission, hasStreamRetransmission, fromPth)
-	}else if sch.SchedulerName == "dqnAgent"{
+	}else if sch.SchedulerName == "dqnAgent" {
 		return sch.selectPathDQNAgent(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	}else if sch.SchedulerName == "primary" {
+		return sch.selectFirstPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	}else{
 		// Default, rtt
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)

@@ -122,7 +122,7 @@ func main() {
 	certPath := flag.String("certpath", getBuildDir(), "certificate directory")
 	www := flag.String("www", "/var/www", "www data")
 	tcp := flag.Bool("tcp", false, "also listen on TCP")
-	scheduler := flag.String("scheduler", "rtt", "selects scheduler (random, rtt, dqnAgent)")
+	scheduler := flag.String("scheduler", "rtt", "selects scheduler (random, rtt, dqnAgent, primary)")
 	wFile := flag.String("weightsFile", "", "(optional) file with agent weights and bias")
 	training := flag.Bool("training", false, "puts agent in trainning mode")
 	epsilon := flag.Float64("epsilon", 0., "epsilon value for e-greedy policy")
