@@ -66,7 +66,7 @@ func main() {
 				panic(err)
 			}
 			elapsed := time.Since(start)
-			utils.Infof("%s", elapsed)
+			utils.Infof("%s", elapsed.Nanoseconds()*1000000)
 			wg.Done()
 		}(addr)
 	}
