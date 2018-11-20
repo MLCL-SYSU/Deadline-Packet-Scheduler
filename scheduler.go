@@ -358,7 +358,9 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		sch.TrainingAgent.SaveStep(uint64(s.connectionID),
 			RewardPartial(sentBytes, time.Since(s.sessionCreationTime), retransR),
 			state, action)
-		sch.cachedPathID = availablePaths[action-1]
+		if action != 0{
+			sch.cachedPathID = availablePaths[action-1]
+		}
 	}else{
 		action = sch.Agent.GetAction(state)
 	}
