@@ -369,7 +369,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	if action == 0{
 		return nil
 	}else{
-		pathID = availablePaths[action]
+		pathID = availablePaths[action-1]
 	}
 
 	utils.Debugf("Selecting path %d", pathID)
