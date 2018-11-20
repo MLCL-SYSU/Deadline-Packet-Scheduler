@@ -284,9 +284,12 @@ func (sch *scheduler) selectFirstPath(s * session, hasRetransmission bool, hasSt
 		}
 		return s.paths[protocol.InitialPathID]
 	}
-	if s.paths[1].SendingAllowed() || hasRetransmission {
-		return s.paths[1]
+	for pathID, pth := range s.paths {
+		if pathID == protocol.PathID(1) && (pth.SendingAllowed()||hasRetransmission){
+			return pth
+		}
 	}
+
 	return nil
 }
 
