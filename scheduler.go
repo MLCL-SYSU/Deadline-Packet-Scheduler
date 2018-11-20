@@ -307,15 +307,13 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	congStatus := make(map[protocol.PathID]types.Output)
 
 	var ackBytes, sentBytes protocol.ByteCount
-	var nRetrans uint64
+	var numberOfRetransmissions uint64
 	var retransR bool
 
 
 	for pathID, pth := range s.paths{
-		cong := float32(pth.sentPacketHandler.GetCongestionWindow())-float32(pth.sentPacketHandler.GetBytesInFlight())
-		allowed := pth.SendingAllowed() || (cong <= 0 && float32(cong) >=  -float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
 
-		if pathID != protocol.InitialPathID && (allowed || hasRetransmission){
+		if pathID != protocol.InitialPathID {
 			availablePaths = append(availablePaths, pathID)
 			sRTT[pathID] = pth.rttStats.SmoothedRTT()
 			ackBytes += pth.sentPacketHandler.GetAckedBytes()
@@ -323,11 +321,11 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 			congW[pathID] = pth.sentPacketHandler.GetCongestionWindow()
 			congStatus[pathID] = types.Output(pth.sentPacketHandler.GetBytesInFlight()) / types.Output(pth.sentPacketHandler.GetCongestionWindow())
 
-			_, nRetrans, _ = pth.sentPacketHandler.GetStatistics()
-			if sch.retrans[pathID] < nRetrans{
+			_, numberOfRetransmissions, _ = pth.sentPacketHandler.GetStatistics()
+			if sch.retrans[pathID] < numberOfRetransmissions{
 				retransR = true
 			}
-			sch.retrans[pathID] = nRetrans
+			sch.retrans[pathID] = numberOfRetransmissions
 		}
 	}
 
@@ -364,8 +362,14 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	}else{
 		action = sch.Agent.GetAction(state)
 	}
+	var pathID protocol.PathID
 
-	pathID := availablePaths[action]
+	if action == 0{
+		return nil
+	}else{
+		pathID = availablePaths[action]
+	}
+
 	utils.Debugf("Selecting path %d", pathID)
 	return s.paths[pathID]
 }
