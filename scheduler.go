@@ -346,7 +346,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 
 	_, retransmissionA, lossesA := s.paths[availablePaths[0]].sentPacketHandler.GetStatistics()
 	_, retransmissionB, lossesB := s.paths[availablePaths[1]].sentPacketHandler.GetStatistics()
-	if retransmissionA + retransmissionB > 2{
+	if retransmissionA + retransmissionB >= 1{
 		s.Close(errors.New("too many retransmissions"))
 	}
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]]),
