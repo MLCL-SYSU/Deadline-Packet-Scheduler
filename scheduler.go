@@ -343,9 +343,13 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 
 	var action int
 
+	_, retransmissionA, lossesA := s.paths[availablePaths[0]].sentPacketHandler.GetStatistics()
+	_, retransmissionB, lossesB := s.paths[availablePaths[1]].sentPacketHandler.GetStatistics()
 	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]]),
 	types.Output(congW[availablePaths[0]])/300.0/types.Output(protocol.DefaultTCPMSS), types.Output(congW[availablePaths[1]])/300.0/types.Output(protocol.DefaultTCPMSS),
-	congStatus[availablePaths[0]], congStatus[availablePaths[1]]}
+	congStatus[availablePaths[0]], congStatus[availablePaths[1]],
+	types.Output(retransmissionA), types.Output(lossesA),
+	types.Output(retransmissionB), types.Output(lossesB)}
 	if sch.Training{
 		if state.IsEqual(sch.cachedState){
 			utils.Debugf("State %s is equal to cached state %s", state, sch.cachedState)
