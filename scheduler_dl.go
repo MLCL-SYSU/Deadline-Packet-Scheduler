@@ -7,6 +7,8 @@ import (
 	"time"
 	"bitbucket.com/marcmolla/gorl/types"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/utils"
+	"errors"
 )
 
 func GetAgent(weightsFile string, specFile string) agents.Agent{
@@ -52,28 +54,61 @@ func NormalizeTimes(stat time.Duration) types.Output{
 	return types.Output(stat.Nanoseconds()) / types.Output(time.Millisecond.Nanoseconds()*150)
 }
 
-/*func NormalizeQuotas(quota1, quota2 uint) [2]types.Output{
-	q1 := types.Output(quota1)
-	q2 := types.Output(quota2)
-
-	if quota1 > quota2{
-		return [2]types.Output{1., q2/q1}
-	}else if quota1 < quota2{
-		return [2]types.Output{q1/q2, 1.}
-	}
-	return [2]types.Output{0., 0.}
-}*/
-
 func RewardFinalGoodput(duration time.Duration, _ time.Duration) types.Output {
 	return types.Output(8) / types.Output(duration.Seconds()) * 5.
 }
 
-//TODO: Maximize the windows size?? vs allowing negative quota
-func RewardPartial(ackdBytes protocol.ByteCount, elapsed time.Duration, retrans bool) types.Output{
-	//return (types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())) / 50
-	mul := 1
-	if retrans{
-		mul = -1
+func GetStateAndReward(sch *scheduler, s *session) (types.Vector, types.Output, []*path){
+	packetNumber := make(map[protocol.PathID]uint64)
+	retransNumber := make(map[protocol.PathID]uint64)
+	lossNumbers := make(map[protocol.PathID]uint64)
+
+	sRTT := make(map[protocol.PathID]time.Duration)
+	cwnd := make(map[protocol.PathID]protocol.ByteCount)
+	cwndlevel := make(map[protocol.PathID]types.Output)
+
+	firstPath, secondPath := protocol.PathID(255), protocol.PathID(255)
+
+	for pathID, path := range s.paths{
+		if pathID != protocol.InitialPathID{
+			packetNumber[pathID], retransNumber[pathID], lossNumbers[pathID] = path.sentPacketHandler.GetStatistics()
+			sRTT[pathID] = path.rttStats.SmoothedRTT()
+			cwnd[pathID] = path.sentPacketHandler.GetCongestionWindow()
+			cwndlevel[pathID] = types.Output(path.sentPacketHandler.GetBytesInFlight())/types.Output(cwnd[pathID])
+
+			// Ordering paths
+			if firstPath == protocol.PathID(255){
+				firstPath = pathID
+			}else{
+				if pathID < firstPath{
+					secondPath = firstPath
+					firstPath = pathID
+				}else{
+					secondPath = pathID
+				}
+			}
+		}
 	}
-	return types.Output(mul)* types.Output(ackdBytes) * 8 / 1024/1024 / types.Output(elapsed.Seconds())
+
+	packetNumberInitial, _, _ := s.paths[protocol.InitialPathID].sentPacketHandler.GetStatistics()
+
+
+	//Partial reward
+	sentBytes := s.paths[firstPath].sentPacketHandler.GetSentBytes() + s.paths[secondPath].sentPacketHandler.GetSentBytes()
+	partialReward := types.Output(sentBytes) * 8 / 1024/1024 / types.Output(time.Since(s.sessionCreationTime)) / 3500
+
+	//Penalize and fast-quit
+	if packetNumberInitial > 20 || (retransNumber[firstPath]+retransNumber[secondPath]) > 0 || (lossNumbers[firstPath]+lossNumbers[secondPath]) > 0{
+		utils.Errorf("closing: zero tolerance")
+		if sch.Training{
+			sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
+		}
+		s.closeLocal(errors.New("closing: zero tolerance"))
+	}
+
+	state := types.Vector{NormalizeTimes(sRTT[firstPath]), NormalizeTimes(sRTT[secondPath]),
+	types.Output(cwnd[firstPath])/types.Output(protocol.DefaultTCPMSS)/300, types.Output(cwnd[secondPath])/types.Output(protocol.DefaultTCPMSS)/300,
+	}
+
+	return state, partialReward, []*path{s.paths[firstPath], s.paths[secondPath]}
 }

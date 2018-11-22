@@ -11,7 +11,6 @@ import (
 
 	"bitbucket.com/marcmolla/gorl/agents"
 	"bitbucket.com/marcmolla/gorl/types"
-	"errors"
 )
 
 type scheduler struct {
@@ -302,90 +301,33 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		}
 		return s.paths[protocol.InitialPathID]
 	}
-	var availablePaths []protocol.PathID
-	sRTT := make(map[protocol.PathID]time.Duration)
-	congW := make(map[protocol.PathID]protocol.ByteCount)
-	congStatus := make(map[protocol.PathID]types.Output)
 
-	var ackBytes, sentBytes protocol.ByteCount
-	var numberOfRetransmissions uint64
-	var retransR bool
-
-
-	for pathID, pth := range s.paths{
-
-		if pathID != protocol.InitialPathID {
-			availablePaths = append(availablePaths, pathID)
-			sRTT[pathID] = pth.rttStats.SmoothedRTT()
-			ackBytes += pth.sentPacketHandler.GetAckedBytes()
-			sentBytes += pth.sentPacketHandler.GetSentBytes()
-			congW[pathID] = pth.sentPacketHandler.GetCongestionWindow()
-			congStatus[pathID] = types.Output(pth.sentPacketHandler.GetBytesInFlight()) / types.Output(pth.sentPacketHandler.GetCongestionWindow())
-
-			_, numberOfRetransmissions, _ = pth.sentPacketHandler.GetStatistics()
-			if sch.retrans[pathID] < numberOfRetransmissions{
-				retransR = true
+	if len(s.paths) == 2{
+		for pathID, path := range s.paths{
+			if pathID!=protocol.InitialPathID{
+				utils.Debugf("Selecting path %d as unique path", pathID)
+				return path
 			}
-			sch.retrans[pathID] = numberOfRetransmissions
 		}
 	}
 
-	if len(availablePaths) == 0 {
-		return nil
-	}else if len(availablePaths) == 1{
-		utils.Debugf("Selecting path %d as unique path", availablePaths[0])
-		return s.paths[availablePaths[0]]
-	}
-
-	// sort (kind of...)
-	if availablePaths[1] < availablePaths[0]{
-		availablePaths=[]protocol.PathID{availablePaths[1], availablePaths[0]}
-	}
 
 	var action int
 
-	_, retransmissionA, lossesA := s.paths[availablePaths[0]].sentPacketHandler.GetStatistics()
-	_, retransmissionB, lossesB := s.paths[availablePaths[1]].sentPacketHandler.GetStatistics()
-	if retransmissionA + retransmissionB >= 1{
-		utils.Errorf("Closing: too many retrans")
-		if sch.Training{
-			sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
-		}
-		s.closeLocal(errors.New("too many retransmissions"))
-	}
-	state := types.Vector{NormalizeTimes(sRTT[availablePaths[0]]), NormalizeTimes(sRTT[availablePaths[1]]),
-	types.Output(congW[availablePaths[0]])/300.0/types.Output(protocol.DefaultTCPMSS), types.Output(congW[availablePaths[1]])/300.0/types.Output(protocol.DefaultTCPMSS),
-	congStatus[availablePaths[0]], congStatus[availablePaths[1]],
-	types.Output(retransmissionA), types.Output(lossesA),
-	types.Output(retransmissionB), types.Output(lossesB)}
+	state, partialReward, paths := GetStateAndReward(sch, s)
 	if sch.Training{
-		if state.IsEqual(sch.cachedState){
-			utils.Debugf("State %s is equal to cached state %s", state, sch.cachedState)
-			utils.Debugf("Selecting path %d", sch.cachedPathID)
-			return s.paths[sch.cachedPathID]
-		}
-		sch.cachedState = state
 		action = sch.TrainingAgent.GetAction(state)
-
-		sch.TrainingAgent.SaveStep(uint64(s.connectionID),
-			RewardPartial(sentBytes, time.Since(s.sessionCreationTime), retransR),
-			state, action)
-		if action != 0{
-			sch.cachedPathID = availablePaths[action-1]
-		}
+		sch.TrainingAgent.SaveStep(uint64(s.connectionID),partialReward, state, action)
 	}else{
 		action = sch.Agent.GetAction(state)
 	}
-	var pathID protocol.PathID
+
 
 	if action == 0{
 		return nil
 	}else{
-		pathID = availablePaths[action-1]
+		return paths[action - 1]
 	}
-
-	utils.Debugf("Selecting path %d", pathID)
-	return s.paths[pathID]
 }
 
 // Lock of s.paths must be held
