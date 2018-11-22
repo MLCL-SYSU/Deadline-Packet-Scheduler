@@ -98,12 +98,12 @@ func GetStateAndReward(sch *scheduler, s *session) (types.Vector, types.Output, 
 	partialReward := types.Output(sentBytes) * 8 / 1024/1024 / types.Output(time.Since(s.sessionCreationTime)) / 3500
 
 	//Penalize and fast-quit
-	if packetNumberInitial > 20 || (retransNumber[firstPath]+retransNumber[secondPath]) > 0 || (lossNumbers[firstPath]+lossNumbers[secondPath]) > 0{
-		utils.Errorf("closing: zero tolerance")
-		if sch.Training{
-			sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
+	if sch.Training{
+		if packetNumberInitial > 20 || (retransNumber[firstPath]+retransNumber[secondPath]) > 0 || (lossNumbers[firstPath]+lossNumbers[secondPath]) > 0{
+			utils.Errorf("closing: zero tolerance")
+				sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
+			s.closeLocal(errors.New("closing: zero tolerance"))
 		}
-		s.closeLocal(errors.New("closing: zero tolerance"))
 	}
 
 	state := types.Vector{NormalizeTimes(sRTT[firstPath]), NormalizeTimes(sRTT[secondPath]),
