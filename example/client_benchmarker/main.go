@@ -63,11 +63,14 @@ func main() {
 			body := &bytes.Buffer{}
 			_, err = io.Copy(body, rsp.Body)
 			if err != nil {
-				panic(err)
+				//panic(err)
+				utils.Infof("%f", float64(30))
+				wg.Done()
+			}else {
+				elapsed := time.Since(start)
+				utils.Infof("%f", float64(elapsed.Nanoseconds())/1000000)
+				wg.Done()
 			}
-			elapsed := time.Since(start)
-			utils.Infof("%f", float64(elapsed.Nanoseconds())/1000000)
-			wg.Done()
 		}(addr)
 	}
 	wg.Wait()
