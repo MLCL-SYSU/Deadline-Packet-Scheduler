@@ -101,14 +101,28 @@ func GetStateAndReward(sch *scheduler, s *session) (types.Vector, types.Output, 
 	if sch.Training{
 		if packetNumberInitial > 20 || (retransNumber[firstPath]+retransNumber[secondPath]) > 0 || (lossNumbers[firstPath]+lossNumbers[secondPath]) > 0{
 			utils.Errorf("closing: zero tolerance")
-				sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
+			sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
 			s.closeLocal(errors.New("closing: zero tolerance"))
 		}
 	}
 
 	state := types.Vector{NormalizeTimes(sRTT[firstPath]), NormalizeTimes(sRTT[secondPath]),
 	types.Output(cwnd[firstPath])/types.Output(protocol.DefaultTCPMSS)/300, types.Output(cwnd[secondPath])/types.Output(protocol.DefaultTCPMSS)/300,
+	cwndlevel[firstPath], cwndlevel[secondPath],
 	}
 
 	return state, partialReward, []*path{s.paths[firstPath], s.paths[secondPath]}
+}
+
+func CheckAction(action int, state types.Vector, s *session, sch *scheduler){
+	if action != 0{
+		return
+	}
+	if state[4] < 1 || state[5] < 1 {
+		// penalize not sending with one path allowed
+		utils.Errorf("not sending with one path allowed")
+		sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
+		s.closeLocal(errors.New("not sending with one path allowed"))
+	}
+
 }
