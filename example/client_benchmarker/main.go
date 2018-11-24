@@ -64,7 +64,7 @@ func main() {
 			_, err = io.Copy(body, rsp.Body)
 			if err != nil {
 				//panic(err)
-				utils.Infof("%f", float64(30))
+				utils.Infof("%f", float64(30000))
 				wg.Done()
 			}else {
 				elapsed := time.Since(start)

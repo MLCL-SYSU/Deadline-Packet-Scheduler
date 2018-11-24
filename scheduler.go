@@ -318,7 +318,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	if sch.Training{
 		action = sch.TrainingAgent.GetAction(state)
 		sch.TrainingAgent.SaveStep(uint64(s.connectionID),partialReward, state, action)
-		CheckAction(action, state, s, sch)
+		//CheckAction(action, state, s, sch)
 	}else{
 		action = sch.Agent.GetAction(state)
 	}
