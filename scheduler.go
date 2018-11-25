@@ -311,6 +311,23 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		}
 	}
 
+	//Check for available paths
+	var availablePaths  []protocol.PathID
+	for pathID, path := range s.paths{
+		if path.sentPacketHandler.SendingAllowed() && pathID != protocol.InitialPathID{
+			availablePaths = append(availablePaths, pathID)
+		}
+	}
+
+	if len(availablePaths) == 0{
+		if s.paths[protocol.InitialPathID].SendingAllowed() || hasRetransmission{
+			return s.paths[protocol.InitialPathID]
+	  }else{
+	  	return nil
+		}
+	}else if len(availablePaths) == 1{
+		return s.paths[availablePaths[0]]
+	}
 
 	var action int
 
@@ -324,11 +341,7 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	}
 
 
-	if action == 0{
-		return nil
-	}else{
-		return paths[action - 1]
-	}
+	return paths[action]
 }
 
 // Lock of s.paths must be held
