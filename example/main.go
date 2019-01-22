@@ -129,6 +129,7 @@ func main() {
 	output := flag.String("outputpath", "", "Output path for DL agent")
 	specFile := flag.String("spec", "", "Spec file for DL agent")
 	valid_congestion := flag.Int("validCongestion", 0, "% of allowed congestion")
+	dumpExperiences := flag.Bool("training", false, "If yes, server dumps experiences in /tmp")
 
 	flag.Parse()
 
@@ -170,7 +171,8 @@ func main() {
 			if *tcp {
 				err = h2quic.ListenAndServe(bCap, certFile, keyFile, nil)
 			} else {
-				err = h2quic.ListenAndServeQUIC(bCap, certFile, keyFile, nil, *scheduler, *wFile, *training, *epsilon, *valid_congestion)
+				err = h2quic.ListenAndServeQUIC(bCap, certFile, keyFile, nil, *scheduler, *wFile, *training, *epsilon,
+					*valid_congestion, *dumpExperiences)
 			}
 			if err != nil {
 				fmt.Println(err)

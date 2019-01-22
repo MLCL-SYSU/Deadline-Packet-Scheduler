@@ -209,7 +209,10 @@ func (s *session) setup(
 		s.config.IdleTimeout,
 	)
 
-	s.scheduler = &scheduler{SchedulerName:s.config.SchedulerName, Training:s.config.Training, AllowedCongestion:s.config.AllowedCongestion}
+	s.scheduler = &scheduler{SchedulerName:s.config.SchedulerName,
+														Training:s.config.Training,
+														AllowedCongestion:s.config.AllowedCongestion,
+														DumpExp:s.config.DumpExperiences}
 	s.scheduler.setup()
 
 	if pconnMgr == nil && conn != nil {

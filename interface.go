@@ -129,6 +129,7 @@ type Config struct {
 	Training      bool
 	Epsilon       float64
 	AllowedCongestion	int
+	DumpExperiences		bool
 }
 
 // A Listener for incoming QUIC connections

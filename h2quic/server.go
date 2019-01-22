@@ -297,13 +297,14 @@ func (s *Server) SetQuicHeaders(hdr http.Header) error {
 // handler for HTTP/2 requests on incoming connections. http.DefaultServeMux is
 // used when handler is nil.
 func ListenAndServeQUIC(addr, certFile, keyFile string, handler http.Handler,
-	scheduler string, weightsFile string, training bool, epsilon float64, valid_congestion int) error {
+	scheduler string, weightsFile string, training bool, epsilon float64, valid_congestion int, dumpExp bool) error {
 	server := &Server{
 		Server: &http.Server{
 			Addr:    addr,
 			Handler: handler,
 		},
-		QuicConfig: &quic.Config{SchedulerName:scheduler, WeightsFile:weightsFile, Training:training, Epsilon:epsilon, AllowedCongestion: valid_congestion},
+		QuicConfig: &quic.Config{SchedulerName:scheduler, WeightsFile:weightsFile, Training:training, Epsilon:epsilon,
+		AllowedCongestion: valid_congestion, DumpExperiences:dumpExp},
 	}
 	return server.ListenAndServeTLS(certFile, keyFile)
 }

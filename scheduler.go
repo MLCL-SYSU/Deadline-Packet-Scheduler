@@ -11,6 +11,7 @@ import (
 
 	"bitbucket.com/marcmolla/gorl/agents"
 	"bitbucket.com/marcmolla/gorl/types"
+	"fmt"
 )
 
 type scheduler struct {
@@ -33,11 +34,19 @@ type scheduler struct {
 
 	// Retrans cache
 	retrans				map[protocol.PathID] uint64
+
+	// Write experiences
+	DumpExp				bool
+	DumpPath			string
+	dumpAgent			experienceAgent
 }
 
 func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
 	sch.retrans = make(map[protocol.PathID]uint64)
+
+	//TODO: expose to config
+	sch.DumpPath = "/tmp/"
 
 	sch.cachedState = types.Vector{-1, -1}
 	if sch.SchedulerName == "dqnAgent" {
@@ -338,6 +347,9 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		//CheckAction(action, state, s, sch)
 	}else{
 		action = sch.Agent.GetAction(state)
+		if sch.DumpExp{
+			sch.dumpAgent.AddStep(uint64(s.connectionID), []string{fmt.Sprint(state), fmt.Sprint(action)})
+		}
 	}
 
 
@@ -413,6 +425,9 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 						}
 					}
 					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), RewardFinalGoodput(duration, maxRTT), false)
+				}
+				if sch.DumpExp && !sch.Training && sch.SchedulerName == "dqnAgent"{
+					sch.dumpAgent.CloseExperience(uint64(s.connectionID))
 				}
 				s.pathsLock.RUnlock()
 			}
