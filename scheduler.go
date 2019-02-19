@@ -426,6 +426,7 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 					}
 					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), RewardFinalGoodput(duration, maxRTT), false)
 				}
+				utils.Infof("Dump: %t, Training:%t, scheduler:%s", sch.DumpExp, sch.Training, sch.SchedulerName)
 				if sch.DumpExp && !sch.Training && sch.SchedulerName == "dqnAgent"{
 					utils.Infof("Closing episode %d", uint64(s.connectionID))
 					sch.dumpAgent.CloseExperience(uint64(s.connectionID))
