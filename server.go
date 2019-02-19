@@ -210,6 +210,7 @@ func populateServerConfig(config *Config) *Config {
 		Training:															 config.Training,
 		Epsilon:															 config.Epsilon,
 		AllowedCongestion:											config.AllowedCongestion,
+		DumpExperiences:												config.DumpExperiences,
 	}
 }
 
