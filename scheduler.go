@@ -47,6 +47,7 @@ func (sch *scheduler) setup() {
 
 	//TODO: expose to config
 	sch.DumpPath = "/tmp/"
+	sch.dumpAgent.Setup()
 
 	sch.cachedState = types.Vector{-1, -1}
 	if sch.SchedulerName == "dqnAgent" {
