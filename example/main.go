@@ -129,7 +129,7 @@ func main() {
 	output := flag.String("outputpath", "", "Output path for DL agent")
 	specFile := flag.String("spec", "", "Spec file for DL agent")
 	valid_congestion := flag.Int("validCongestion", 0, "% of allowed congestion")
-	dumpExperiences := flag.Bool("training", false, "If yes, server dumps experiences in /tmp")
+	dumpExperiences := flag.Bool("validating", false, "If yes, server dumps experiences in /tmp")
 
 	flag.Parse()
 
