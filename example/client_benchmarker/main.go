@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"fmt"
 
 	quic "github.com/lucas-clemente/quic-go"
 
@@ -29,7 +30,12 @@ func main() {
 		utils.SetLogLevel(utils.LogLevelDebug)
 	} else {
 		utils.SetLogLevel(utils.LogLevelInfo)
+		//czy
+		// utils.SetLogLevel(utils.LogLevelDebug)
 	}
+
+	// test: czy
+	fmt.Println("test-client-benchmarker")
 
 	if *output != "" {
 		logfile, err := os.Create(*output)
@@ -69,6 +75,7 @@ func main() {
 			}else {
 				elapsed := time.Since(start)
 				utils.Infof("%f", float64(elapsed.Nanoseconds())/1000000)
+				//elapsed time
 				wg.Done()
 			}
 		}(addr)

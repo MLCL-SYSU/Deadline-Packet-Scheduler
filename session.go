@@ -209,10 +209,10 @@ func (s *session) setup(
 		s.config.IdleTimeout,
 	)
 
-	s.scheduler = &scheduler{SchedulerName:s.config.SchedulerName,
-														Training:s.config.Training,
-														AllowedCongestion:s.config.AllowedCongestion,
-														DumpExp:s.config.DumpExperiences}
+	s.scheduler = &scheduler{SchedulerName: s.config.SchedulerName,
+		Training:          s.config.Training,
+		AllowedCongestion: s.config.AllowedCongestion,
+		DumpExp:           s.config.DumpExperiences}
 	s.scheduler.setup()
 
 	if pconnMgr == nil && conn != nil {
@@ -597,8 +597,10 @@ func (s *session) handleStreamFrame(frame *wire.StreamFrame) error {
 		utils.Infof("Info for stream %x of %x", frame.StreamID, s.connectionID)
 		for pathID, pth := range s.paths {
 			sntPkts, sntRetrans, sntLost := pth.sentPacketHandler.GetStatistics()
-			rcvPkts := pth.receivedPacketHandler.GetStatistics()
+			//rcvPkts := pth.receivedPacketHandler.GetStatistics()
+			rcvPkts, hasDeadlinePkts, meetDeadlinePkts := pth.receivedPacketHandler.GetStatistics()
 			utils.Infof("Path %x: sent %d retrans %d lost %d; rcv %d", pathID, sntPkts, sntRetrans, sntLost, rcvPkts)
+			utils.Infof("hasDeadlinePkts %d; meetDeadlinePkts %d", hasDeadlinePkts, meetDeadlinePkts)
 		}
 		s.pathsLock.RUnlock()
 	}
@@ -775,23 +777,31 @@ func (s *session) handleCloseError(closeErr closeError) error {
 }
 
 func (s *session) sendPacket() error {
+	// fmt.Println("sendPacket")
 	return s.scheduler.sendPacket(s)
 }
 
 func (s *session) sendPackedPacket(packet *packedPacket, pth *path) error {
 	defer putPacketBuffer(packet.raw)
+	//czy
+	//fmt.Println("In sendPackedPacket, packet.raw:", packet.raw)
+	fmt.Println("current select path:", pth.pathID)
 	err := pth.sentPacketHandler.SentPacket(&ackhandler.Packet{
 		PacketNumber:    packet.number,
 		Frames:          packet.frames,
 		Length:          protocol.ByteCount(len(packet.raw)),
 		EncryptionLevel: packet.encryptionLevel,
+		//czy: add deadline
+		Deadline: packet.m_deadline,
 	})
 	if err != nil {
 		return err
 	}
 	pth.sentPacket <- struct{}{}
 
+	// fmt.Println("sendPackedPacket")
 	s.logPacket(packet, pth.pathID)
+	//czy: only write raw data, where is the PacketNumber and Packet head information
 	return pth.conn.Write(packet.raw)
 }
 

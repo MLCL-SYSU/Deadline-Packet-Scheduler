@@ -16,6 +16,7 @@ type Packet struct {
 	EncryptionLevel protocol.EncryptionLevel
 
 	SendTime time.Time
+	Deadline time.Time
 }
 
 // GetFramesForRetransmission gets all the frames for retransmission

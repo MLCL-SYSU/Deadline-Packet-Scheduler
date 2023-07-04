@@ -23,6 +23,7 @@ type conn struct {
 
 var _ connection = &conn{}
 
+//czy:这里定义的都是connection的func，为什么是conn对象在使用？
 func (c *conn) Write(p []byte) error {
 	_, err := c.pconn.WriteTo(p, c.currentAddr)
 	return err

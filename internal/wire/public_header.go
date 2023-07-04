@@ -3,7 +3,9 @@ package wire
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"time"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
@@ -34,6 +36,8 @@ type PublicHeader struct {
 	VersionNumber        protocol.VersionNumber   // VersionNumber sent by the client
 	SupportedVersions    []protocol.VersionNumber // VersionNumbers sent by the server
 	DiversificationNonce []byte
+	//czy
+	Deadline time.Time
 }
 
 // Write writes a public header. Warning: This API should not be considered stable and will change soon.
@@ -116,6 +120,16 @@ func (h *PublicHeader) Write(b *bytes.Buffer, version protocol.VersionNumber, pe
 		return errors.New("PublicHeader: PacketNumberLen not set")
 	}
 
+	//czy:deadline
+	//fmt.Println("Before add deadline:", b.Bytes())
+	deadlineTimeBytes, err := h.Deadline.MarshalBinary()
+	if err != nil {
+		fmt.Println("Error writing time to buffer:", err)
+		return nil
+	}
+	_, err = b.Write(deadlineTimeBytes)
+	//fmt.Println("After add deadline:", b.Bytes())
+
 	return nil
 }
 
@@ -154,8 +168,12 @@ func PeekConnectionID(b *bytes.Reader, packetSentBy protocol.Perspective) (proto
 func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, version protocol.VersionNumber) (*PublicHeader, error) {
 	header := &PublicHeader{}
 
+	//fmt.Println("b:", b, ". Reader.Len():", b.Len())
 	// First byte
 	publicFlagByte, err := b.ReadByte()
+
+	//fmt.Println("After read Flag, Reader.Len():", b.Len())
+
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +223,8 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 		}
 	}
 
+	//fmt.Println("After read connID, Reader.Len():", b.Len())
+
 	if packetSentBy == protocol.PerspectiveServer && publicFlagByte&0x04 > 0 {
 		// TODO: remove the if once the Google servers send the correct value
 		// assume that a packet doesn't contain a diversification nonce if the version flag or the reset flag is set, no matter what the public flag says
@@ -216,6 +236,7 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 			}
 		}
 	}
+	//fmt.Println("After read DiversificationNonce, Reader.Len():", b.Len())
 
 	// Version (optional)
 	if !header.ResetFlag && header.VersionFlag {
@@ -257,6 +278,8 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 		header.PathID = 0
 	}
 
+	//fmt.Println("After read pathID, b: Reader.Len():", b.Len())
+
 	// Packet number
 	if header.hasPacketNumber(packetSentBy) {
 		packetNumber, err := utils.GetByteOrder(version).ReadUintN(b, uint8(header.PacketNumberLen))
@@ -265,7 +288,16 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 		}
 		header.PacketNumber = protocol.PacketNumber(packetNumber)
 	}
-
+	//fmt.Println("After read packetNumber, Reader.Len():", b.Len())
+	//fmt.Println("In ParsePublicHeader, header.pathID:", header.PathID)
+	//fmt.Println("header.MultipathFlag:", header.MultipathFlag)
+	//fmt.Println("header.PacketNumber:", header.PacketNumber)
+	// parse deadline
+	//And deadline length maybe always 15 bytes
+	deadlineBytesToRead := make([]byte, 15)
+	_, err = b.Read(deadlineBytesToRead)
+	header.Deadline.UnmarshalBinary(deadlineBytesToRead)
+	//fmt.Println("Parse deadline:", header.Deadline)
 	return header, nil
 }
 
@@ -304,6 +336,7 @@ func (h *PublicHeader) GetLength(pers protocol.Perspective) (protocol.ByteCount,
 	if h.MultipathFlag {
 		length += 1
 	}
+	length += 15
 
 	return length, nil
 }

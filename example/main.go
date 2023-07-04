@@ -17,9 +17,9 @@ import (
 
 	_ "net/http/pprof"
 
+	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/h2quic"
 	"github.com/lucas-clemente/quic-go/internal/utils"
-	"github.com/lucas-clemente/quic-go"
 )
 
 type binds []string
@@ -54,7 +54,7 @@ func init() {
 
 	http.HandleFunc("/demo/tiles", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "<html><head><style>img{width:40px;height:40px;}</style></head><body>")
-		for i := 0; i < 200; i++ {
+		for i := 0; i < 200; i++ { //defualt:200
 			fmt.Fprintf(w, `<img src="/demo/tile?cachebust=%d">`, i)
 		}
 		io.WriteString(w, "</body></html>")
@@ -119,6 +119,7 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	bs := binds{}
 	flag.Var(&bs, "bind", "bind to")
+
 	certPath := flag.String("certpath", getBuildDir(), "certificate directory")
 	www := flag.String("www", "/var/www", "www data")
 	tcp := flag.Bool("tcp", false, "also listen on TCP")
@@ -133,16 +134,16 @@ func main() {
 
 	flag.Parse()
 
-	if *scheduler != "dqnAgent" && *wFile != "" {
-		utils.Infof("Ignoring agent files as you selected scheduler %s", *scheduler)
-	}
-	if !*training && *epsilon != 0.{
-		utils.Infof("Agent is not in training mode. Ignoring epsilon argument")
-	}
+	// if *scheduler != "dqnAgent" && *wFile != "" {
+	// 	utils.Infof("Ignoring agent files as you selected scheduler %s", *scheduler)
+	// }
+	// if !*training && *epsilon != 0.{
+	// 	utils.Infof("Agent is not in training mode. Ignoring epsilon argument")
+	// }
 	// Init agents
-	if *training && *scheduler == "dqnAgent"{
+	if *training && *scheduler == "dqnAgent" {
 		quic.GetTrainingAgent(*wFile, *specFile, *output, *epsilon)
-	}else if *scheduler == "dqnAgent"{
+	} else if *scheduler == "dqnAgent" {
 		quic.GetAgent(*wFile, *specFile)
 	}
 
@@ -162,6 +163,8 @@ func main() {
 		bs = binds{"0.0.0.0:6121"}
 	}
 
+	//don't use Init()
+
 	var wg sync.WaitGroup
 	wg.Add(len(bs))
 	for _, b := range bs {
@@ -170,9 +173,11 @@ func main() {
 			var err error
 			if *tcp {
 				err = h2quic.ListenAndServe(bCap, certFile, keyFile, nil)
+				fmt.Println("This a TCP server!")
 			} else {
 				err = h2quic.ListenAndServeQUIC(bCap, certFile, keyFile, nil, *scheduler, *wFile, *training, *epsilon,
 					*valid_congestion, *dumpExperiences)
+				fmt.Println("This a QUIC server!")
 			}
 			if err != nil {
 				fmt.Println(err)

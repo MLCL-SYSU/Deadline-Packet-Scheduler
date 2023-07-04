@@ -196,9 +196,9 @@ func populateClientConfig(config *Config) *Config {
 		RequestConnectionIDTruncation:         config.RequestConnectionIDTruncation,
 		MaxReceiveStreamFlowControlWindow:     maxReceiveStreamFlowControlWindow,
 		MaxReceiveConnectionFlowControlWindow: maxReceiveConnectionFlowControlWindow,
-		KeepAlive:      config.KeepAlive,
-		CacheHandshake: config.CacheHandshake,
-		CreatePaths:    config.CreatePaths,
+		KeepAlive:                             config.KeepAlive,
+		CacheHandshake:                        config.CacheHandshake,
+		CreatePaths:                           config.CreatePaths,
 	}
 }
 
@@ -288,7 +288,14 @@ func (c *client) handlePacket(rcvRawPacket *receivedRawPacket) {
 	}
 
 	r := bytes.NewReader(packet)
+	//fmt.Println("In Client handlePacket, packet bytes is:", packet)
 	hdr, err := wire.ParsePublicHeader(r, protocol.PerspectiveServer, c.version)
+
+	//czy: get deadline from received packet header
+	fmt.Println("Client Received packet. PacketNumber:", hdr.PacketNumber, "Deadline:", hdr.Deadline)
+	fmt.Println("receive time:", rcvTime)
+	fmt.Println("Deadline - receive time:", hdr.Deadline.Sub(rcvTime))
+
 	if err != nil {
 		utils.Errorf("error parsing packet from %s: %s", remoteAddr.String(), err.Error())
 		// drop this packet if we can't parse the Public Header

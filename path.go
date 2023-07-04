@@ -1,6 +1,7 @@
 package quic
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/lucas-clemente/quic-go/ackhandler"
@@ -193,6 +194,7 @@ func (p *path) handlePacketImpl(pkt *receivedPacket) error {
 	p.potentiallyFailed.Set(false)
 
 	// Calculate packet number
+	// czy:why need here?
 	hdr.PacketNumber = protocol.InferPacketNumber(
 		hdr.PacketNumberLen,
 		p.largestRcvdPacketNumber,
@@ -227,6 +229,11 @@ func (p *path) handlePacketImpl(pkt *receivedPacket) error {
 
 	isRetransmittable := ackhandler.HasRetransmittableFrames(packet.frames)
 	if err = p.receivedPacketHandler.ReceivedPacket(hdr.PacketNumber, isRetransmittable); err != nil {
+		return err
+	}
+	//czy: statistic num of packet which has deadline and meet deadline
+	fmt.Println("Received pathID:", p.pathID, "PacketNumber", hdr.PacketNumber, "Deadline", hdr.Deadline)
+	if err = p.receivedPacketHandler.StatisticPacketMeet(hdr, pkt.rcvTime); err != nil {
 		return err
 	}
 

@@ -28,6 +28,10 @@ type receivedPacketHandler struct {
 	version protocol.VersionNumber
 
 	packets uint64
+
+	//czy
+	packetsHasDeadline  uint64
+	packetsMeetDeadline uint64
 }
 
 // NewReceivedPacketHandler creates a new receivedPacketHandler
@@ -39,8 +43,8 @@ func NewReceivedPacketHandler(version protocol.VersionNumber) ReceivedPacketHand
 	}
 }
 
-func (h *receivedPacketHandler) GetStatistics() uint64 {
-	return h.packets
+func (h *receivedPacketHandler) GetStatistics() (uint64, uint64, uint64) {
+	return h.packets, h.packetsHasDeadline, h.packetsMeetDeadline
 }
 
 func (h *receivedPacketHandler) ReceivedPacket(packetNumber protocol.PacketNumber, shouldInstigateAck bool) error {
@@ -162,3 +166,17 @@ func (h *receivedPacketHandler) GetClosePathFrame() *wire.ClosePathFrame {
 }
 
 func (h *receivedPacketHandler) GetAlarmTimeout() time.Time { return h.ackAlarm }
+
+func (h *receivedPacketHandler) StatisticPacketMeet(hdr *wire.PublicHeader, rcvTime time.Time) error {
+	if !hdr.Deadline.IsZero() {
+		meetTime := hdr.Deadline.Sub(rcvTime) //Deadline - RcvTime
+		if meetTime > 0 {
+			//meet deadline
+			h.packetsHasDeadline++
+			h.packetsMeetDeadline++
+		} else { //not meet deadline
+			h.packetsHasDeadline++
+		}
+	}
+	return nil
+}

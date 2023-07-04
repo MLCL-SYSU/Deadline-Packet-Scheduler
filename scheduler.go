@@ -1,18 +1,25 @@
 package quic
 
 import (
-	"time"
-
+	"fmt"
 	"github.com/lucas-clemente/quic-go/ackhandler"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/internal/wire"
+	"gonum.org/v1/gonum/stat/distuv"
+	"math"
 	"math/rand"
+	"os"
+	"time"
 
 	"bitbucket.com/marcmolla/gorl/agents"
 	"bitbucket.com/marcmolla/gorl/types"
-	"fmt"
+	"gonum.org/v1/gonum/mat"
+	//"gonum.org/v1/gonum/stat/distuv"
 )
+
+const banditAlpha = 0.75
+const banditDimension = 6
 
 type scheduler struct {
 	// XXX Currently round-robin based, inspired from MPTCP scheduler
@@ -27,23 +34,77 @@ type scheduler struct {
 	Agent agents.Agent
 
 	// Cached state for training
-	cachedState		types.Vector
-	cachedPathID	protocol.PathID
+	cachedState  types.Vector
+	cachedPathID protocol.PathID
 
 	AllowedCongestion int
 
+	// async updated reward
+	record        uint64
+	episoderecord uint64
+	statevector   [6000]types.Vector
+	packetvector  [6000]uint64
+	//rewardvector [6000]types.Output
+	actionvector   [6000]int
+	recordDuration [6000]types.Output
+	lastfiretime   time.Time
+	zz             [6000]time.Time
+	waiting        uint64
+
+	// linUCB
+	fe           uint64
+	se           uint64
+	MAaF         [banditDimension][banditDimension]float64
+	MAaS         [banditDimension][banditDimension]float64
+	MbaF         [banditDimension]float64
+	MbaS         [banditDimension]float64
+	featureone   [6000]float64
+	featuretwo   [6000]float64
+	featurethree [6000]float64
+	featurefour  [6000]float64
+	featurefive  [6000]float64
+	featuresix   [6000]float64
 	// Retrans cache
-	retrans				map[protocol.PathID] uint64
+	retrans map[protocol.PathID]uint64
 
 	// Write experiences
-	DumpExp				bool
-	DumpPath			string
-	dumpAgent			experienceAgent
+	DumpExp   bool
+	DumpPath  string
+	dumpAgent experienceAgent
+
+	//czy
+	NotSentPackets uint64
 }
 
 func (sch *scheduler) setup() {
 	sch.quotas = make(map[protocol.PathID]uint)
 	sch.retrans = make(map[protocol.PathID]uint64)
+	sch.waiting = 0
+
+	//Read lin to buffer
+	// file, err := os.Open("/App/output/lin")
+	file, err := os.Open("../output/lin")
+	if err != nil {
+		panic(err)
+	}
+
+	for i := 0; i < banditDimension; i++ {
+		for j := 0; j < banditDimension; j++ {
+			fmt.Fscanln(file, &sch.MAaF[i][j])
+		}
+	}
+	for i := 0; i < banditDimension; i++ {
+		for j := 0; j < banditDimension; j++ {
+			fmt.Fscanln(file, &sch.MAaS[i][j])
+		}
+	}
+	for i := 0; i < banditDimension; i++ {
+		fmt.Fscanln(file, &sch.MbaF[i])
+	}
+	for i := 0; i < banditDimension; i++ {
+		fmt.Fscanln(file, &sch.MbaS[i])
+	}
+	file.Close()
 
 	//TODO: expose to config
 	sch.DumpPath = "/tmp/"
@@ -58,7 +119,6 @@ func (sch *scheduler) setup() {
 		}
 	}
 }
-
 
 func (sch *scheduler) getRetransmission(s *session) (hasRetransmission bool, retransmitPacket *ackhandler.Packet, pth *path) {
 	// check for retransmissions first
@@ -151,6 +211,7 @@ pathLoop:
 		}
 
 		currentQuota, ok = sch.quotas[pathID]
+		fmt.Println("RR-pathID:", pathID, "quotas:", sch.quotas)
 		if !ok {
 			sch.quotas[pathID] = 0
 			currentQuota = 0
@@ -258,7 +319,768 @@ pathLoop:
 	return selectedPath
 }
 
+func (sch *scheduler) selectBLEST(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	utils.Debugf("selectPathBLEST")
+	// XXX Avoid using PathID 0 if there is more than 1 path
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+
+	// FIXME Only works at the beginning... Cope with new paths during the connection
+	if hasRetransmission && hasStreamRetransmission && fromPth.rttStats.SmoothedRTT() == 0 {
+		// Is there any other path with a lower number of packet sent?
+		currentQuota := sch.quotas[fromPth.pathID]
+		for pathID, pth := range s.paths {
+			if pathID == protocol.InitialPathID || pathID == fromPth.pathID {
+				continue
+			}
+			// The congestion window was checked when duplicating the packet
+			if sch.quotas[pathID] < currentQuota {
+				return pth
+			}
+		}
+	}
+
+	var bestPath *path
+	var secondBestPath *path
+	var lowerRTT time.Duration
+	var currentRTT time.Duration
+	var secondLowerRTT time.Duration
+	bestPathID := protocol.PathID(255)
+
+pathLoop:
+	for pathID, pth := range s.paths {
+		// Don't block path usage if we retransmit, even on another path
+		if !hasRetransmission && !pth.SendingAllowed() {
+			continue pathLoop
+		}
+
+		// If this path is potentially failed, do not consider it for sending
+		if pth.potentiallyFailed.Get() {
+			continue pathLoop
+		}
+
+		// XXX Prevent using initial pathID if multiple paths
+		if pathID == protocol.InitialPathID {
+			continue pathLoop
+		}
+
+		currentRTT = pth.rttStats.SmoothedRTT()
+
+		// Prefer staying single-path if not blocked by current path
+		// Don't consider this sample if the smoothed RTT is 0
+		if lowerRTT != 0 && currentRTT == 0 {
+			continue pathLoop
+		}
+
+		// Case if we have multiple paths unprobed
+		if currentRTT == 0 {
+			currentQuota, ok := sch.quotas[pathID]
+			if !ok {
+				sch.quotas[pathID] = 0
+				currentQuota = 0
+			}
+			lowerQuota, _ := sch.quotas[bestPathID]
+			if bestPath != nil && currentQuota > lowerQuota {
+				continue pathLoop
+			}
+		}
+
+		if currentRTT >= lowerRTT {
+			if (secondLowerRTT == 0 || currentRTT < secondLowerRTT) && pth.SendingAllowed() {
+				// Update second best available path
+				secondLowerRTT = currentRTT
+				secondBestPath = pth
+			}
+			if currentRTT != 0 && lowerRTT != 0 && bestPath != nil {
+				continue pathLoop
+			}
+		}
+
+		// Update
+		lowerRTT = currentRTT
+		bestPath = pth
+		bestPathID = pathID
+	}
+
+	if bestPath == nil {
+		if secondBestPath != nil {
+			return secondBestPath
+		}
+		return nil
+	}
+
+	if hasRetransmission || bestPath.SendingAllowed() {
+		return bestPath
+	}
+
+	if secondBestPath == nil {
+		return nil
+	}
+	cwndBest := uint64(bestPath.sentPacketHandler.GetCongestionWindow())
+	FirstCo := uint64(protocol.DefaultTCPMSS) * uint64(secondLowerRTT) * (cwndBest*2*uint64(lowerRTT) + uint64(secondLowerRTT) - uint64(lowerRTT))
+	BSend, _ := s.flowControlManager.SendWindowSize(protocol.StreamID(5))
+	SecondCo := 2 * 1 * uint64(lowerRTT) * uint64(lowerRTT) * (uint64(BSend) - (uint64(secondBestPath.sentPacketHandler.GetBytesInFlight()) + uint64(protocol.DefaultTCPMSS)))
+
+	if FirstCo > SecondCo {
+		return nil
+	} else {
+		return secondBestPath
+	}
+}
+
+func (sch *scheduler) selectECF(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	utils.Debugf("selectPathECF")
+	// XXX Avoid using PathID 0 if there is more than 1 path
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+
+	// FIXME Only works at the beginning... Cope with new paths during the connection
+	if hasRetransmission && hasStreamRetransmission && fromPth.rttStats.SmoothedRTT() == 0 {
+		// Is there any other path with a lower number of packet sent?
+		currentQuota := sch.quotas[fromPth.pathID]
+		for pathID, pth := range s.paths {
+			if pathID == protocol.InitialPathID || pathID == fromPth.pathID {
+				continue
+			}
+			// The congestion window was checked when duplicating the packet
+			if sch.quotas[pathID] < currentQuota {
+				return pth
+			}
+		}
+	}
+
+	var bestPath *path
+	var secondBestPath *path
+	var lowerRTT time.Duration
+	var currentRTT time.Duration
+	var secondLowerRTT time.Duration
+	bestPathID := protocol.PathID(255)
+
+pathLoop:
+	for pathID, pth := range s.paths {
+		// Don't block path usage if we retransmit, even on another path
+		if !hasRetransmission && !pth.SendingAllowed() {
+			continue pathLoop
+		}
+
+		// If this path is potentially failed, do not consider it for sending
+		if pth.potentiallyFailed.Get() {
+			continue pathLoop
+		}
+
+		// XXX Prevent using initial pathID if multiple paths
+		if pathID == protocol.InitialPathID {
+			continue pathLoop
+		}
+
+		currentRTT = pth.rttStats.SmoothedRTT()
+
+		// Prefer staying single-path if not blocked by current path
+		// Don't consider this sample if the smoothed RTT is 0
+		if lowerRTT != 0 && currentRTT == 0 {
+			continue pathLoop
+		}
+
+		// Case if we have multiple paths unprobed
+		if currentRTT == 0 {
+			currentQuota, ok := sch.quotas[pathID]
+			if !ok {
+				sch.quotas[pathID] = 0
+				currentQuota = 0
+			}
+			lowerQuota, _ := sch.quotas[bestPathID]
+			if bestPath != nil && currentQuota > lowerQuota {
+				continue pathLoop
+			}
+		}
+
+		if currentRTT >= lowerRTT {
+			if (secondLowerRTT == 0 || currentRTT < secondLowerRTT) && pth.SendingAllowed() {
+				// Update second best available path
+				secondLowerRTT = currentRTT
+				secondBestPath = pth
+			}
+			if currentRTT != 0 && lowerRTT != 0 && bestPath != nil {
+				continue pathLoop
+			}
+		}
+
+		// Update
+		lowerRTT = currentRTT
+		bestPath = pth
+		bestPathID = pathID
+	}
+
+	if bestPath == nil {
+		if secondBestPath != nil {
+			return secondBestPath
+		}
+		return nil
+	}
+
+	if hasRetransmission || bestPath.SendingAllowed() {
+		return bestPath
+	}
+
+	if secondBestPath == nil {
+		return nil
+	}
+
+	var queueSize uint64
+	getQueueSize := func(s *stream) (bool, error) {
+		if s != nil {
+			queueSize = queueSize + uint64(s.lenOfDataForWriting())
+		}
+		return true, nil
+	}
+	s.streamsMap.Iterate(getQueueSize)
+
+	cwndBest := uint64(bestPath.sentPacketHandler.GetCongestionWindow())
+	fmt.Println("ECF-CWNDbest:", cwndBest)
+	cwndSecond := uint64(secondBestPath.sentPacketHandler.GetCongestionWindow())
+	deviationBest := uint64(bestPath.rttStats.MeanDeviation())
+	deviationSecond := uint64(secondBestPath.rttStats.MeanDeviation())
+
+	delta := deviationBest
+	if deviationBest < deviationSecond {
+		delta = deviationSecond
+	}
+	xBest := queueSize
+	if queueSize < cwndBest {
+		xBest = cwndBest
+	}
+
+	lhs := uint64(lowerRTT) * (xBest + cwndBest)
+	rhs := cwndBest * (uint64(secondLowerRTT) + delta)
+	if (lhs * 4) < ((rhs * 4) + sch.waiting*rhs) {
+		xSecond := queueSize
+		if queueSize < cwndSecond {
+			xSecond = cwndSecond
+		}
+		lhsSecond := uint64(secondLowerRTT) * xSecond
+		rhsSecond := cwndSecond * (2*uint64(lowerRTT) + delta)
+		if lhsSecond > rhsSecond {
+			sch.waiting = 1
+			return nil
+		}
+	} else {
+		sch.waiting = 0
+	}
+
+	return secondBestPath
+}
+
+func (sch *scheduler) selectPathLowBandit(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	// XXX Avoid using PathID 0 if there is more than 1 path
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+
+	// FIXME Only works at the beginning... Cope with new paths during the connection
+	if hasRetransmission && hasStreamRetransmission && fromPth.rttStats.SmoothedRTT() == 0 {
+		// Is there any other path with a lower number of packet sent?
+		currentQuota := sch.quotas[fromPth.pathID]
+		for pathID, pth := range s.paths {
+			if pathID == protocol.InitialPathID || pathID == fromPth.pathID {
+				continue
+			}
+			// The congestion window was checked when duplicating the packet
+			if sch.quotas[pathID] < currentQuota {
+				return pth
+			}
+		}
+	}
+
+	var bestPath *path
+	var secondBestPath *path
+	var lowerRTT time.Duration
+	var currentRTT time.Duration
+	var secondLowerRTT time.Duration
+	bestPathID := protocol.PathID(255)
+
+pathLoop:
+	for pathID, pth := range s.paths {
+		// If this path is potentially failed, do not consider it for sending
+		if pth.potentiallyFailed.Get() {
+			continue pathLoop
+		}
+
+		// XXX Prevent using initial pathID if multiple paths
+		if pathID == protocol.InitialPathID {
+			continue pathLoop
+		}
+
+		currentRTT = pth.rttStats.SmoothedRTT()
+
+		// Prefer staying single-path if not blocked by current path
+		// Don't consider this sample if the smoothed RTT is 0
+		if lowerRTT != 0 && currentRTT == 0 {
+			continue pathLoop
+		}
+
+		// Case if we have multiple paths unprobed
+		if currentRTT == 0 {
+			currentQuota, ok := sch.quotas[pathID]
+			if !ok {
+				sch.quotas[pathID] = 0
+				currentQuota = 0
+			}
+			lowerQuota, _ := sch.quotas[bestPathID]
+			if bestPath != nil && currentQuota > lowerQuota {
+				continue pathLoop
+			}
+		}
+
+		if currentRTT >= lowerRTT {
+			if (secondLowerRTT == 0 || currentRTT < secondLowerRTT) && pth.SendingAllowed() {
+				// Update second best available path
+				secondLowerRTT = currentRTT
+				secondBestPath = pth
+			}
+			if currentRTT != 0 && lowerRTT != 0 && bestPath != nil {
+				continue pathLoop
+			}
+		}
+
+		// Update
+		lowerRTT = currentRTT
+		bestPath = pth
+		bestPathID = pathID
+
+	}
+
+	//Get reward and Update Aa, ba
+	if bestPath != nil && secondBestPath != nil {
+		for sch.episoderecord < sch.record {
+			// Get reward
+			cureNum := uint64(0)
+			curereward := float64(0)
+			if sch.actionvector[sch.episoderecord] == 0 {
+				cureNum = uint64(bestPath.sentPacketHandler.GetLeastUnacked() - 1)
+			} else {
+				cureNum = uint64(secondBestPath.sentPacketHandler.GetLeastUnacked() - 1)
+			}
+			if sch.packetvector[sch.episoderecord] <= cureNum {
+				curereward = float64(protocol.DefaultTCPMSS) / float64(time.Since(sch.zz[sch.episoderecord]))
+			} else {
+				break
+			}
+			//Update Aa, ba
+			feature := mat.NewDense(banditDimension, 1, nil)
+			feature.Set(0, 0, sch.featureone[sch.episoderecord])
+			feature.Set(1, 0, sch.featuretwo[sch.episoderecord])
+			feature.Set(2, 0, sch.featurethree[sch.episoderecord])
+			feature.Set(3, 0, sch.featurefour[sch.episoderecord])
+			feature.Set(4, 0, sch.featurefive[sch.episoderecord])
+			feature.Set(5, 0, sch.featuresix[sch.episoderecord])
+
+			if sch.actionvector[sch.episoderecord] == 0 {
+				rewardMul := mat.NewDense(banditDimension, 1, nil)
+				rewardMul.Scale(curereward, feature)
+				baF := mat.NewDense(banditDimension, 1, nil)
+				for i := 0; i < banditDimension; i++ {
+					baF.Set(i, 0, sch.MbaF[i])
+				}
+				baF.Add(baF, rewardMul)
+				for i := 0; i < banditDimension; i++ {
+					sch.MbaF[i] = baF.At(i, 0)
+				}
+				featureMul := mat.NewDense(banditDimension, banditDimension, nil)
+				featureMul.Product(feature, feature.T())
+				AaF := mat.NewDense(banditDimension, banditDimension, nil)
+				for i := 0; i < banditDimension; i++ {
+					for j := 0; j < banditDimension; j++ {
+						AaF.Set(i, j, sch.MAaF[i][j])
+					}
+				}
+				AaF.Add(AaF, featureMul)
+				for i := 0; i < banditDimension; i++ {
+					for j := 0; j < banditDimension; j++ {
+						sch.MAaF[i][j] = AaF.At(i, j)
+					}
+				}
+				sch.fe += 1
+			} else {
+				rewardMul := mat.NewDense(banditDimension, 1, nil)
+				rewardMul.Scale(curereward, feature)
+				baS := mat.NewDense(banditDimension, 1, nil)
+				for i := 0; i < banditDimension; i++ {
+					baS.Set(i, 0, sch.MbaS[i])
+				}
+				baS.Add(baS, rewardMul)
+				for i := 0; i < banditDimension; i++ {
+					sch.MbaS[i] = baS.At(i, 0)
+				}
+				featureMul := mat.NewDense(banditDimension, banditDimension, nil)
+				featureMul.Product(feature, feature.T())
+				AaS := mat.NewDense(banditDimension, banditDimension, nil)
+				for i := 0; i < banditDimension; i++ {
+					for j := 0; j < banditDimension; j++ {
+						AaS.Set(i, j, sch.MAaS[i][j])
+					}
+				}
+				AaS.Add(AaS, featureMul)
+				for i := 0; i < banditDimension; i++ {
+					for j := 0; j < banditDimension; j++ {
+						sch.MAaS[i][j] = AaS.At(i, j)
+					}
+				}
+				sch.se += 1
+			}
+			//Update pointer
+			sch.episoderecord += 1
+		}
+	}
+
+	if bestPath == nil {
+		if secondBestPath != nil {
+			return secondBestPath
+		}
+		if s.paths[protocol.InitialPathID].SendingAllowed() || hasRetransmission {
+			return s.paths[protocol.InitialPathID]
+		} else {
+			return nil
+		}
+	}
+	if bestPath.SendingAllowed() {
+		sch.waiting = 0
+		return bestPath
+	}
+	if secondBestPath == nil {
+		if s.paths[protocol.InitialPathID].SendingAllowed() || hasRetransmission {
+			return s.paths[protocol.InitialPathID]
+		} else {
+			return nil
+		}
+	}
+
+	if hasRetransmission && secondBestPath.SendingAllowed() {
+		return secondBestPath
+	}
+	if hasRetransmission {
+		return s.paths[protocol.InitialPathID]
+	}
+
+	if sch.waiting == 1 {
+		return nil
+	} else {
+		// Migrate from buffer to local variables
+		AaF := mat.NewDense(banditDimension, banditDimension, nil)
+		for i := 0; i < banditDimension; i++ {
+			for j := 0; j < banditDimension; j++ {
+				AaF.Set(i, j, sch.MAaF[i][j])
+			}
+		}
+		AaS := mat.NewDense(banditDimension, banditDimension, nil)
+		for i := 0; i < banditDimension; i++ {
+			for j := 0; j < banditDimension; j++ {
+				AaS.Set(i, j, sch.MAaS[i][j])
+			}
+		}
+		baF := mat.NewDense(banditDimension, 1, nil)
+		for i := 0; i < banditDimension; i++ {
+			baF.Set(i, 0, sch.MbaF[i])
+		}
+		baS := mat.NewDense(banditDimension, 1, nil)
+		for i := 0; i < banditDimension; i++ {
+			baS.Set(i, 0, sch.MbaS[i])
+		}
+
+		//Features
+		cwndBest := float64(bestPath.sentPacketHandler.GetCongestionWindow())
+		cwndSecond := float64(secondBestPath.sentPacketHandler.GetCongestionWindow())
+		BSend, _ := s.flowControlManager.SendWindowSize(protocol.StreamID(5))
+		inflightf := float64(bestPath.sentPacketHandler.GetBytesInFlight())
+		inflights := float64(secondBestPath.sentPacketHandler.GetBytesInFlight())
+		llowerRTT := bestPath.rttStats.LatestRTT()
+		lsecondLowerRTT := secondBestPath.rttStats.LatestRTT()
+		feature := mat.NewDense(banditDimension, 1, nil)
+		if 0 < float64(lsecondLowerRTT) && 0 < float64(llowerRTT) {
+			feature.Set(0, 0, cwndBest/float64(llowerRTT))
+			feature.Set(2, 0, float64(BSend)/float64(llowerRTT))
+			feature.Set(4, 0, inflightf/float64(llowerRTT))
+			feature.Set(1, 0, inflights/float64(lsecondLowerRTT))
+			feature.Set(3, 0, float64(BSend)/float64(lsecondLowerRTT))
+			feature.Set(5, 0, cwndSecond/float64(lsecondLowerRTT))
+		} else {
+			feature.Set(0, 0, 0)
+			feature.Set(2, 0, 0)
+			feature.Set(4, 0, 0)
+			feature.Set(1, 0, 0)
+			feature.Set(3, 0, 0)
+			feature.Set(5, 0, 0)
+		}
+
+		//Buffer feature for latter update
+		sch.featureone[sch.record] = feature.At(0, 0)
+		sch.featuretwo[sch.record] = feature.At(1, 0)
+		sch.featurethree[sch.record] = feature.At(2, 0)
+		sch.featurefour[sch.record] = feature.At(3, 0)
+		sch.featurefive[sch.record] = feature.At(4, 0)
+		sch.featuresix[sch.record] = feature.At(5, 0)
+
+		//Obtain theta
+		AaIF := mat.NewDense(banditDimension, banditDimension, nil)
+		AaIF.Inverse(AaF)
+		thetaF := mat.NewDense(banditDimension, 1, nil)
+		thetaF.Product(AaIF, baF)
+
+		AaIS := mat.NewDense(banditDimension, banditDimension, nil)
+		AaIS.Inverse(AaS)
+		thetaS := mat.NewDense(banditDimension, 1, nil)
+		thetaS.Product(AaIS, baS)
+
+		//Obtain bandit value
+		thetaFPro := mat.NewDense(1, 1, nil)
+		thetaFPro.Product(thetaF.T(), feature)
+		featureFProOne := mat.NewDense(1, banditDimension, nil)
+		featureFProOne.Product(feature.T(), AaIF)
+		featureFProTwo := mat.NewDense(1, 1, nil)
+		featureFProTwo.Product(featureFProOne, feature)
+
+		thetaSPro := mat.NewDense(1, 1, nil)
+		thetaSPro.Product(thetaS.T(), feature)
+		featureSProOne := mat.NewDense(1, banditDimension, nil)
+		featureSProOne.Product(feature.T(), AaIS)
+		featureSProTwo := mat.NewDense(1, 1, nil)
+		featureSProTwo.Product(featureSProOne, feature)
+
+		//Make decision based on bandit value
+		if (thetaSPro.At(0, 0) + banditAlpha*math.Sqrt(featureSProTwo.At(0, 0))) < (thetaFPro.At(0, 0) + banditAlpha*math.Sqrt(featureFProTwo.At(0, 0))) {
+			sch.waiting = 1
+			sch.zz[sch.record] = time.Now()
+			sch.actionvector[sch.record] = 0
+			sch.packetvector[sch.record] = bestPath.sentPacketHandler.GetLastPackets() + 1
+			sch.record += 1
+			return nil
+		} else {
+			sch.waiting = 0
+			sch.zz[sch.record] = time.Now()
+			sch.actionvector[sch.record] = 1
+			sch.packetvector[sch.record] = secondBestPath.sentPacketHandler.GetLastPackets() + 1
+			sch.record += 1
+			return secondBestPath
+		}
+
+	}
+
+}
+
+func (sch *scheduler) selectPathPeek(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	// XXX Avoid using PathID 0 if there is more than 1 path
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+
+	// FIXME Only works at the beginning... Cope with new paths during the connection
+	if hasRetransmission && hasStreamRetransmission && fromPth.rttStats.SmoothedRTT() == 0 {
+		// Is there any other path with a lower number of packet sent?
+		currentQuota := sch.quotas[fromPth.pathID]
+		for pathID, pth := range s.paths {
+			if pathID == protocol.InitialPathID || pathID == fromPth.pathID {
+				continue
+			}
+			// The congestion window was checked when duplicating the packet
+			if sch.quotas[pathID] < currentQuota {
+				return pth
+			}
+		}
+	}
+
+	var bestPath *path
+	var secondBestPath *path
+	var lowerRTT time.Duration
+	var currentRTT time.Duration
+	var secondLowerRTT time.Duration
+	bestPathID := protocol.PathID(255)
+
+pathLoop:
+	for pathID, pth := range s.paths {
+		// If this path is potentially failed, do not consider it for sending
+		if pth.potentiallyFailed.Get() {
+			continue pathLoop
+		}
+
+		// XXX Prevent using initial pathID if multiple paths
+		if pathID == protocol.InitialPathID {
+			continue pathLoop
+		}
+
+		currentRTT = pth.rttStats.SmoothedRTT()
+
+		// Prefer staying single-path if not blocked by current path
+		// Don't consider this sample if the smoothed RTT is 0
+		if lowerRTT != 0 && currentRTT == 0 {
+			continue pathLoop
+		}
+
+		// Case if we have multiple paths unprobed
+		if currentRTT == 0 {
+			currentQuota, ok := sch.quotas[pathID]
+			if !ok {
+				sch.quotas[pathID] = 0
+				currentQuota = 0
+			}
+			lowerQuota, _ := sch.quotas[bestPathID]
+			if bestPath != nil && currentQuota > lowerQuota {
+				continue pathLoop
+			}
+		}
+
+		if currentRTT >= lowerRTT {
+			if (secondLowerRTT == 0 || currentRTT < secondLowerRTT) && pth.SendingAllowed() {
+				// Update second best available path
+				secondLowerRTT = currentRTT
+				secondBestPath = pth
+			}
+			if currentRTT != 0 && lowerRTT != 0 && bestPath != nil {
+				continue pathLoop
+			}
+		}
+
+		// Update
+		lowerRTT = currentRTT
+		bestPath = pth
+		bestPathID = pathID
+
+	}
+
+	if bestPath == nil {
+		if secondBestPath != nil {
+			return secondBestPath
+		}
+		if s.paths[protocol.InitialPathID].SendingAllowed() || hasRetransmission {
+			return s.paths[protocol.InitialPathID]
+		} else {
+			return nil
+		}
+	}
+	if bestPath.SendingAllowed() {
+		sch.waiting = 0
+		return bestPath
+	}
+	if secondBestPath == nil {
+		if s.paths[protocol.InitialPathID].SendingAllowed() || hasRetransmission {
+			return s.paths[protocol.InitialPathID]
+		} else {
+			return nil
+		}
+	}
+
+	if hasRetransmission && secondBestPath.SendingAllowed() {
+		return secondBestPath
+	}
+	if hasRetransmission {
+		return s.paths[protocol.InitialPathID]
+	}
+
+	if sch.waiting == 1 {
+		return nil
+	} else {
+		// Migrate from buffer to local variables
+		AaF := mat.NewDense(banditDimension, banditDimension, nil)
+		for i := 0; i < banditDimension; i++ {
+			for j := 0; j < banditDimension; j++ {
+				AaF.Set(i, j, sch.MAaF[i][j])
+			}
+		}
+		AaS := mat.NewDense(banditDimension, banditDimension, nil)
+		for i := 0; i < banditDimension; i++ {
+			for j := 0; j < banditDimension; j++ {
+				AaS.Set(i, j, sch.MAaS[i][j])
+			}
+		}
+		baF := mat.NewDense(banditDimension, 1, nil)
+		for i := 0; i < banditDimension; i++ {
+			baF.Set(i, 0, sch.MbaF[i])
+		}
+		baS := mat.NewDense(banditDimension, 1, nil)
+		for i := 0; i < banditDimension; i++ {
+			baS.Set(i, 0, sch.MbaS[i])
+		}
+
+		//Features
+		fmt.Println("Peekaboo")
+		cwndBest := float64(bestPath.sentPacketHandler.GetCongestionWindow())
+		cwndSecond := float64(secondBestPath.sentPacketHandler.GetCongestionWindow())
+		BSend, _ := s.flowControlManager.SendWindowSize(protocol.StreamID(5))
+		inflightf := float64(bestPath.sentPacketHandler.GetBytesInFlight())
+		inflights := float64(secondBestPath.sentPacketHandler.GetBytesInFlight())
+		llowerRTT := bestPath.rttStats.LatestRTT()
+		lsecondLowerRTT := secondBestPath.rttStats.LatestRTT()
+		feature := mat.NewDense(banditDimension, 1, nil)
+		if 0 < float64(lsecondLowerRTT) && 0 < float64(llowerRTT) {
+			feature.Set(0, 0, cwndBest/float64(llowerRTT))
+			feature.Set(2, 0, float64(BSend)/float64(llowerRTT))
+			feature.Set(4, 0, inflightf/float64(llowerRTT))
+			feature.Set(1, 0, inflights/float64(lsecondLowerRTT))
+			feature.Set(3, 0, float64(BSend)/float64(lsecondLowerRTT))
+			feature.Set(5, 0, cwndSecond/float64(lsecondLowerRTT))
+		} else {
+			feature.Set(0, 0, 0)
+			feature.Set(2, 0, 0)
+			feature.Set(4, 0, 0)
+			feature.Set(1, 0, 0)
+			feature.Set(3, 0, 0)
+			feature.Set(5, 0, 0)
+		}
+
+		//Obtain theta
+		AaIF := mat.NewDense(banditDimension, banditDimension, nil)
+		AaIF.Inverse(AaF)
+		thetaF := mat.NewDense(banditDimension, 1, nil)
+		thetaF.Product(AaIF, baF)
+
+		AaIS := mat.NewDense(banditDimension, banditDimension, nil)
+		AaIS.Inverse(AaS)
+		thetaS := mat.NewDense(banditDimension, 1, nil)
+		thetaS.Product(AaIS, baS)
+
+		//Obtain bandit value
+		thetaFPro := mat.NewDense(1, 1, nil)
+		thetaFPro.Product(thetaF.T(), feature)
+
+		thetaSPro := mat.NewDense(1, 1, nil)
+		thetaSPro.Product(thetaS.T(), feature)
+
+		//Make decision based on bandit value and stochastic value
+		if thetaSPro.At(0, 0) < thetaFPro.At(0, 0) {
+			if rand.Intn(100) < 70 {
+				sch.waiting = 1
+				return nil
+			} else {
+				sch.waiting = 0
+				return secondBestPath
+			}
+		} else {
+			if rand.Intn(100) < 90 {
+				sch.waiting = 0
+				return secondBestPath
+			} else {
+				sch.waiting = 1
+				return nil
+			}
+		}
+	}
+
+}
+
 func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	utils.Debugf("selectPathRandom")
 	// XXX Avoid using PathID 0 if there is more than 1 path
 	if len(s.paths) <= 1 {
 		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
@@ -268,12 +1090,12 @@ func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasSt
 	}
 	var availablePaths []protocol.PathID
 
-	for pathID, pth := range s.paths{
-		cong := float32(pth.sentPacketHandler.GetCongestionWindow())-float32(pth.sentPacketHandler.GetBytesInFlight())
-		allowed := pth.SendingAllowed() || (cong <= 0 && float32(cong) >=  -float32(pth.sentPacketHandler.GetCongestionWindow()) * float32(sch.AllowedCongestion) * 0.01)
+	for pathID, pth := range s.paths {
+		cong := float32(pth.sentPacketHandler.GetCongestionWindow()) - float32(pth.sentPacketHandler.GetBytesInFlight())
+		allowed := pth.SendingAllowed() || (cong <= 0 && float32(cong) >= -float32(pth.sentPacketHandler.GetCongestionWindow())*float32(sch.AllowedCongestion)*0.01)
 
-		if pathID != protocol.InitialPathID && (allowed || hasRetransmission){
-		//if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
+		if pathID != protocol.InitialPathID && (allowed || hasRetransmission) {
+			//if pathID != protocol.InitialPathID && (pth.SendingAllowed() || hasRetransmission){
 			availablePaths = append(availablePaths, pathID)
 		}
 	}
@@ -287,7 +1109,7 @@ func (sch *scheduler) selectPathRandom(s *session, hasRetransmission bool, hasSt
 	return s.paths[availablePaths[pathID]]
 }
 
-func (sch *scheduler) selectFirstPath(s * session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+func (sch *scheduler) selectFirstPath(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
 	if len(s.paths) <= 1 {
 		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
 			return nil
@@ -295,7 +1117,7 @@ func (sch *scheduler) selectFirstPath(s * session, hasRetransmission bool, hasSt
 		return s.paths[protocol.InitialPathID]
 	}
 	for pathID, pth := range s.paths {
-		if pathID == protocol.PathID(1) && pth.SendingAllowed(){
+		if pathID == protocol.PathID(1) && pth.SendingAllowed() {
 			return pth
 		}
 	}
@@ -312,9 +1134,9 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 		return s.paths[protocol.InitialPathID]
 	}
 
-	if len(s.paths) == 2{
-		for pathID, path := range s.paths{
-			if pathID!=protocol.InitialPathID{
+	if len(s.paths) == 2 {
+		for pathID, path := range s.paths {
+			if pathID != protocol.InitialPathID {
 				utils.Debugf("Selecting path %d as unique path", pathID)
 				return path
 			}
@@ -322,37 +1144,28 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 	}
 
 	//Check for available paths
-	var availablePaths  []protocol.PathID
-	for pathID, path := range s.paths{
-		if path.sentPacketHandler.SendingAllowed() && pathID != protocol.InitialPathID{
+	var availablePaths []protocol.PathID
+	for pathID, path := range s.paths {
+		if path.sentPacketHandler.SendingAllowed() && pathID != protocol.InitialPathID {
 			availablePaths = append(availablePaths, pathID)
 		}
 	}
 
-	if len(availablePaths) == 0{
-		if s.paths[protocol.InitialPathID].SendingAllowed() || hasRetransmission{
+	if len(availablePaths) == 0 {
+		if s.paths[protocol.InitialPathID].SendingAllowed() || hasRetransmission {
 			return s.paths[protocol.InitialPathID]
-	  }else{
-	  	return nil
+		} else {
+			return nil
 		}
-	}else if len(availablePaths) == 1{
+	} else if len(availablePaths) == 1 {
 		return s.paths[availablePaths[0]]
 	}
 
-	var action int
+	action, paths := GetStateAndReward(sch, s)
 
-	state, partialReward, paths := GetStateAndReward(sch, s)
-	if sch.Training{
-		action = sch.TrainingAgent.GetAction(state)
-		sch.TrainingAgent.SaveStep(uint64(s.connectionID),partialReward, state, action)
-		//CheckAction(action, state, s, sch)
-	}else{
-		action = sch.Agent.GetAction(state)
-		if sch.DumpExp{
-			sch.dumpAgent.AddStep(uint64(s.connectionID), []string{fmt.Sprint(state), fmt.Sprint(action)})
-		}
+	if paths == nil {
+		return s.paths[protocol.InitialPathID]
 	}
-
 
 	return paths[action]
 }
@@ -361,31 +1174,53 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
 	// XXX Currently round-robin
 	if sch.SchedulerName == "rtt" {
+		fmt.Println("Selecting path: rtt")
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
-	}else if sch.SchedulerName == "random"{
-		return sch.selectPathRandom(s, hasRetransmission, hasStreamRetransmission, fromPth)
-	}else if sch.SchedulerName == "dqnAgent" {
+	} else if sch.SchedulerName == "random" {
+		//random is roundrobin, not random
+		fmt.Println("Selecting path: roundrobin")
+		return sch.selectPathRoundRobin(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	} else if sch.SchedulerName == "lowband" {
+		fmt.Println("Selecting path: lowband")
+		return sch.selectPathLowBandit(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	} else if sch.SchedulerName == "peek" {
+		fmt.Println("Selecting path: peek")
+		return sch.selectPathPeek(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	} else if sch.SchedulerName == "ecf" {
+		fmt.Println("Selecting path: ecf")
+		return sch.selectECF(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	} else if sch.SchedulerName == "blest" {
+		fmt.Println("Selecting path: blest")
+		return sch.selectBLEST(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	} else if sch.SchedulerName == "dqnAgent" {
+		fmt.Println("Selecting path: dqnAgent")
 		return sch.selectPathDQNAgent(s, hasRetransmission, hasStreamRetransmission, fromPth)
-	}else if sch.SchedulerName == "primary" {
+	} else if sch.SchedulerName == "primary" {
+		fmt.Println("Selecting path: primary")
 		return sch.selectFirstPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
-	}else{
+	} else {
 		// Default, rtt
+		fmt.Println("Selecting path: default--rtt")
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	}
 	// return sch.selectPathRoundRobin(s, hasRetransmission, hasStreamRetransmission, fromPth)
 }
 
 // Lock of s.paths must be free (in case of log print)
-func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame, pth *path) (*ackhandler.Packet, bool, error) {
+func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame, pth *path, deadline time.Time) (*ackhandler.Packet, bool, error) {
 	// add a retransmittable frame
 	if pth.sentPacketHandler.ShouldSendRetransmittablePacket() {
 		s.packer.QueueControlFrame(&wire.PingFrame{}, pth)
 	}
-	packet, err := s.packer.PackPacket(pth)
+	packet, err := s.packer.PackPacket(pth, deadline)
 	if err != nil || packet == nil {
+		// always trigger by payloadFrame = 0
+		fmt.Println("PackPacket error!")
 		return nil, false, err
 	}
 	if err = s.sendPackedPacket(packet, pth); err != nil {
+		// not execute
+		fmt.Println("sendPackedPacket error!")
 		return nil, false, err
 	}
 
@@ -409,30 +1244,64 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 				utils.Infof("Info for stream %x of %x", frame.StreamID, s.connectionID)
 				for pathID, pth := range s.paths {
 					sntPkts, sntRetrans, sntLost := pth.sentPacketHandler.GetStatistics()
-					rcvPkts := pth.receivedPacketHandler.GetStatistics()
+					//rcvPkts := pth.receivedPacketHandler.GetStatistics()
+					rcvPkts, hasDeadlinePkts, meetDeadlinePkts := pth.receivedPacketHandler.GetStatistics()
 					utils.Infof("Path %x: sent %d retrans %d lost %d; rcv %d rtt %v", pathID, sntPkts, sntRetrans, sntLost, rcvPkts, pth.rttStats.SmoothedRTT())
+					utils.Infof("hasDeadlinePkts %d; meetDeadlinePkts %d", hasDeadlinePkts, meetDeadlinePkts)
 					// TODO: Remove it
 					utils.Infof("Congestion Window: %d", pth.sentPacketHandler.GetCongestionWindow())
-					if sch.Training{
+					if sch.Training {
 						sRTT[pathID] = pth.rttStats.SmoothedRTT()
 					}
 				}
-				if sch.Training && sch.SchedulerName == "dqnAgent"{
+				notSentPkts := sch.GetNotSentPackets()
+				utils.Infof("Not Sent Packets Num:%d", notSentPkts) //only linOpt not zeros
+				// peekaboo log
+				// utils.Infof("Action: %d", sch.actionvector)
+				// utils.Infof("record: %d", sch.record)
+				// utils.Infof("epsidoe: %d", sch.episoderecord)
+				// utils.Infof("fe: %d", sch.fe)
+				// utils.Infof("se: %d", sch.se)
+				if sch.Training && sch.SchedulerName == "dqnAgent" {
 					duration := time.Since(s.sessionCreationTime)
 					var maxRTT time.Duration
-					for pathID := range sRTT{
-						if sRTT[pathID] > maxRTT{
+					for pathID := range sRTT {
+						if sRTT[pathID] > maxRTT {
 							maxRTT = sRTT[pathID]
 						}
 					}
-					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), RewardFinalGoodput(duration, maxRTT), false)
+					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), RewardFinalGoodput(sch, s, duration, maxRTT), false)
 				}
 				utils.Infof("Dump: %t, Training:%t, scheduler:%s", sch.DumpExp, sch.Training, sch.SchedulerName)
-				if sch.DumpExp && !sch.Training && sch.SchedulerName == "dqnAgent"{
+				if sch.DumpExp && !sch.Training && sch.SchedulerName == "dqnAgent" {
 					utils.Infof("Closing episode %d", uint64(s.connectionID))
 					sch.dumpAgent.CloseExperience(uint64(s.connectionID))
 				}
 				s.pathsLock.RUnlock()
+				//Write lin parameters
+				// os.Remove("/App/output/lin")
+				// os.Create("/App/output/lin")
+				// file2, _ := os.OpenFile("/App/output/lin", os.O_WRONLY, 0600)
+				os.Remove("../output/lin")
+				os.Create("../output/lin")
+				file2, _ := os.OpenFile("../output/lin", os.O_WRONLY, 0600)
+				for i := 0; i < banditDimension; i++ {
+					for j := 0; j < banditDimension; j++ {
+						fmt.Fprintf(file2, "%.8f\n", sch.MAaF[i][j])
+					}
+				}
+				for i := 0; i < banditDimension; i++ {
+					for j := 0; j < banditDimension; j++ {
+						fmt.Fprintf(file2, "%.8f\n", sch.MAaS[i][j])
+					}
+				}
+				for j := 0; j < banditDimension; j++ {
+					fmt.Fprintf(file2, "%.8f\n", sch.MbaF[j])
+				}
+				for j := 0; j < banditDimension; j++ {
+					fmt.Fprintf(file2, "%.8f\n", sch.MbaS[j])
+				}
+				file2.Close()
 			}
 		default:
 		}
@@ -443,6 +1312,7 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 		Frames:          packet.frames,
 		Length:          protocol.ByteCount(len(packet.raw)),
 		EncryptionLevel: packet.encryptionLevel,
+		Deadline:        packet.m_deadline,
 	}
 
 	return pkt, true, nil
@@ -483,7 +1353,8 @@ func (sch *scheduler) ackRemainingPaths(s *session, totalWindowUpdateFrames []*w
 				// Avoid internal error bug
 				packet, err = s.packer.PackAckPacket(pthTmp)
 			} else {
-				packet, err = s.packer.PackPacket(pthTmp)
+				var deadline time.Time
+				packet, err = s.packer.PackPacket(pthTmp, deadline)
 			}
 			if err != nil {
 				return err
@@ -498,8 +1369,14 @@ func (sch *scheduler) ackRemainingPaths(s *session, totalWindowUpdateFrames []*w
 	return nil
 }
 
+func (sch *scheduler) GetNotSentPackets() uint64 {
+	return sch.NotSentPackets
+}
+
 func (sch *scheduler) sendPacket(s *session) error {
 	var pth *path
+	// packet batch size
+	batch := 6 //default:6
 
 	// Update leastUnacked value of paths
 	s.pathsLock.RLock()
@@ -511,110 +1388,329 @@ func (sch *scheduler) sendPacket(s *session) error {
 	// get WindowUpdate frames
 	// this call triggers the flow controller to increase the flow control windows, if necessary
 	windowUpdateFrames := s.getWindowUpdateFrames(false)
+	fmt.Println("windowUpdateFrames:", windowUpdateFrames)
 	for _, wuf := range windowUpdateFrames {
 		s.packer.QueueControlFrame(wuf, pth)
 	}
 
+	// czy:we can generate deadline here, and schedule the packet to be sent at the deadline, then add deadline to packet
+	// then receive packet, get deadline and received time.
+
+	//czy:这个逻辑后面估计得改，目前是每次循环选一个path，打包一个packet
 	// Repeatedly try sending until we don't have any more data, or run out of the congestion window
-	for {
-		// We first check for retransmissions
-		hasRetransmission, retransmitHandshakePacket, fromPth := sch.getRetransmission(s)
-		// XXX There might still be some stream frames to be retransmitted
-		hasStreamRetransmission := s.streamFramer.HasFramesForRetransmission()
+	fmt.Println("A new sendPacket function.")
+	if sch.SchedulerName == "BatchLinOpt" {
+		fmt.Println("Batch packet transfer!")
+		for {
+			// We first check for retransmissions
+			hasRetransmission, retransmitHandshakePacket, fromPth := sch.getRetransmission(s)
+			// XXX There might still be some stream frames to be retransmitted
+			hasStreamRetransmission := s.streamFramer.HasFramesForRetransmission()
 
-		// Select the path here
-		s.pathsLock.RLock()
-		pth = sch.selectPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
-		s.pathsLock.RUnlock()
+			// czy:generate batch size deadline
+			generateTime := time.Now()
+			deadlineBatch := GenerateBatchDeadline(batch)
 
-		// XXX No more path available, should we have a new QUIC error message?
-		if pth == nil {
-			windowUpdateFrames := s.getWindowUpdateFrames(false)
-			return sch.ackRemainingPaths(s, windowUpdateFrames)
-		}
+			// select paths here for batch packet——Default: all select first path
+			// TODO：realize the linOpt
+			s.pathsLock.RLock()
+			pthBatch := sch.selectBatchPath(s, hasRetransmission, hasStreamRetransmission, fromPth, deadlineBatch)
+			s.pathsLock.RUnlock()
+			fmt.Println("Deadline Batch:", deadlineBatch)
 
-		// If we have an handshake packet retransmission, do it directly
-		if hasRetransmission && retransmitHandshakePacket != nil {
-			s.packer.QueueControlFrame(pth.sentPacketHandler.GetStopWaitingFrame(true), pth)
-			packet, err := s.packer.PackHandshakeRetransmission(retransmitHandshakePacket, pth)
-			if err != nil {
-				return err
+			// this pth to deal with the special case, like retransmission
+			// set the first not nil value of pthBatch to pth
+			fmt.Println("pthBatch:", pthBatch)
+			if pthBatch == nil {
+				fmt.Println("pthBatch is nil")
 			}
-			if err = s.sendPackedPacket(packet, pth); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// XXX Some automatic ACK generation should be done someway
-		var ack *wire.AckFrame
-
-		ack = pth.GetAckFrame()
-		if ack != nil {
-			s.packer.QueueControlFrame(ack, pth)
-		}
-		if ack != nil || hasStreamRetransmission {
-			swf := pth.sentPacketHandler.GetStopWaitingFrame(hasStreamRetransmission)
-			if swf != nil {
-				s.packer.QueueControlFrame(swf, pth)
-			}
-		}
-
-		// Also add CLOSE_PATH frames, if any
-		for cpf := s.streamFramer.PopClosePathFrame(); cpf != nil; cpf = s.streamFramer.PopClosePathFrame() {
-			s.packer.QueueControlFrame(cpf, pth)
-		}
-
-		// Also add ADD ADDRESS frames, if any
-		for aaf := s.streamFramer.PopAddAddressFrame(); aaf != nil; aaf = s.streamFramer.PopAddAddressFrame() {
-			s.packer.QueueControlFrame(aaf, pth)
-		}
-
-		// Also add PATHS frames, if any
-		for pf := s.streamFramer.PopPathsFrame(); pf != nil; pf = s.streamFramer.PopPathsFrame() {
-			s.packer.QueueControlFrame(pf, pth)
-		}
-
-		pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth)
-		if err != nil {
-			if err == ackhandler.ErrTooManyTrackedSentPackets{
-				utils.Errorf("Closing episode")
-				if sch.SchedulerName == "dqnAgent" && sch.Training{
-					sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
+			for _, pthValue := range pthBatch {
+				if pthValue != nil {
+					pth = pthValue
+					break
 				}
 			}
-			return err
-		}
-		windowUpdateFrames = nil
-		if !sent {
-			// Prevent sending empty packets
-			return sch.ackRemainingPaths(s, windowUpdateFrames)
-		}
 
-		// Duplicate traffic when it was sent on an unknown performing path
-		// FIXME adapt for new paths coming during the connection
-		if pth.rttStats.SmoothedRTT() == 0 {
-			currentQuota := sch.quotas[pth.pathID]
-			// Was the packet duplicated on all potential paths?
-		duplicateLoop:
-			for pathID, tmpPth := range s.paths {
-				if pathID == protocol.InitialPathID || pathID == pth.pathID {
+			// XXX No more path available, should we have a new QUIC error message?
+			// TODO:pth and pthBatch is necessary?
+			if pth == nil {
+				windowUpdateFrames := s.getWindowUpdateFrames(false)
+				fmt.Println("pth is nil, into a ackRemainingPaths!")
+				return sch.ackRemainingPaths(s, windowUpdateFrames)
+			}
+
+			// XXX No more path available, should we have a new QUIC error message?
+			if pthBatch == nil {
+				windowUpdateFrames := s.getWindowUpdateFrames(false)
+				fmt.Println("pthBatch is nil, into a ackRemainingPaths!")
+				return sch.ackRemainingPaths(s, windowUpdateFrames)
+			}
+
+			// If we have an handshake packet retransmission, do it directly
+			// retransmission in pth
+			if hasRetransmission && retransmitHandshakePacket != nil {
+				s.packer.QueueControlFrame(pth.sentPacketHandler.GetStopWaitingFrame(true), pth)
+				packet, err := s.packer.PackHandshakeRetransmission(retransmitHandshakePacket, pth)
+				if err != nil {
+					return err
+				}
+				if err = s.sendPackedPacket(packet, pth); err != nil {
+					return err
+				}
+				// not execute
+				fmt.Println("continue a new for!")
+				continue
+			}
+
+			// XXX Some automatic ACK generation should be done someway
+			var ack *wire.AckFrame
+
+			fmt.Println("pth befor GetAckFrame:", pth)
+			ack = pth.GetAckFrame()
+			if ack != nil {
+				s.packer.QueueControlFrame(ack, pth)
+			}
+			if ack != nil || hasStreamRetransmission {
+				swf := pth.sentPacketHandler.GetStopWaitingFrame(hasStreamRetransmission)
+				if swf != nil {
+					s.packer.QueueControlFrame(swf, pth)
+				}
+			}
+
+			// Also add CLOSE_PATH frames, if any
+			for cpf := s.streamFramer.PopClosePathFrame(); cpf != nil; cpf = s.streamFramer.PopClosePathFrame() {
+				s.packer.QueueControlFrame(cpf, pth)
+			}
+
+			// Also add the ADD ADDRESS frames, if any
+			for aaf := s.streamFramer.PopAddAddressFrame(); aaf != nil; aaf = s.streamFramer.PopAddAddressFrame() {
+				s.packer.QueueControlFrame(aaf, pth)
+			}
+
+			// Also add PATHS frames, if any
+			for pf := s.streamFramer.PopPathsFrame(); pf != nil; pf = s.streamFramer.PopPathsFrame() {
+				s.packer.QueueControlFrame(pf, pth)
+			}
+
+			// PerformSendingPacket at pthBatch
+			// This pkt is Packet, sent is true
+			for i := 0; i < batch; i++ {
+				fmt.Println("In batch =", batch, ", current pkt is:", i)
+				deadline := generateTime.Add(time.Duration(deadlineBatch[i]) * time.Millisecond)
+				pth = pthBatch[i]
+				if pth == nil {
+					//LOG packets not transmit
+					sch.NotSentPackets++
 					continue
 				}
-				if sch.quotas[pathID] < currentQuota && tmpPth.sentPacketHandler.SendingAllowed() {
-					// Duplicate it
-					pth.sentPacketHandler.DuplicatePacket(pkt)
-					break duplicateLoop
+				// TODO:pth may be nil
+				pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline)
+				if err != nil {
+					if err == ackhandler.ErrTooManyTrackedSentPackets {
+						utils.Errorf("Closing episode")
+					}
+					return err
+				}
+				windowUpdateFrames = nil
+				//windowUpdateFrames := s.getWindowUpdateFrames(false)
+				if !sent {
+					// Prevent sending empty packets
+					fmt.Println("sent is not true, into ackRemainingPaths.")
+					return sch.ackRemainingPaths(s, windowUpdateFrames)
+				}
+
+				// Duplicate traffic when it was sent on an unknown performing path
+				// FIXME adapt for new paths coming during the connection
+				if pth.rttStats.SmoothedRTT() == 0 {
+					currentQuota := sch.quotas[pth.pathID]
+					// Was the packet duplicated on all potential paths?
+				duplicateLoop1:
+					for pathID, tmpPth := range s.paths {
+						if pathID == protocol.InitialPathID || pathID == pth.pathID {
+							fmt.Println("pathID is 0, continue!")
+							continue
+						}
+						if sch.quotas[pathID] < currentQuota && tmpPth.sentPacketHandler.SendingAllowed() {
+							// Duplicate it
+							pth.sentPacketHandler.DuplicatePacket(pkt)
+							fmt.Println("Because smoothedRTT == 0, duplicatePacket!")
+							break duplicateLoop1
+						}
+					}
+				}
+
+				// And try pinging on potentially failed paths
+				if fromPth != nil && fromPth.potentiallyFailed.Get() {
+					err = s.sendPing(fromPth)
+					fmt.Println("try pinging on potentially failed paths.")
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
+	} else {
+		for {
+			fmt.Println("One decision one packet")
+			// We first check for retransmissions
+			hasRetransmission, retransmitHandshakePacket, fromPth := sch.getRetransmission(s)
+			// XXX There might still be some stream frames to be retransmitted
+			hasStreamRetransmission := s.streamFramer.HasFramesForRetransmission()
 
-		// And try pinging on potentially failed paths
-		if fromPth != nil && fromPth.potentiallyFailed.Get() {
-			err = s.sendPing(fromPth)
+			//czy:generate deadline hear
+			randNum := rand.Intn(30) + 10 //10ms - 40ms
+			deadline := time.Now().Add(time.Duration(randNum) * time.Millisecond)
+			// use generator to generate deadline
+			//min := 30 //deadline between 30ms and 50ms
+			//max := 50
+			//deadline := uniformDeadlineGenerator(min, max)
+
+			// Select the path here
+			s.pathsLock.RLock()
+			pth = sch.selectPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
+			s.pathsLock.RUnlock()
+
+			// XXX No more path available, should we have a new QUIC error message?
+			if pth == nil {
+				windowUpdateFrames := s.getWindowUpdateFrames(false)
+				fmt.Println("windowUpdateFrame:", windowUpdateFrames)
+				fmt.Println("pth is nil, into a ackRemainingPaths!")
+				return sch.ackRemainingPaths(s, windowUpdateFrames)
+			}
+
+			// If we have an handshake packet retransmission, do it directly
+			if hasRetransmission && retransmitHandshakePacket != nil {
+				s.packer.QueueControlFrame(pth.sentPacketHandler.GetStopWaitingFrame(true), pth)
+				packet, err := s.packer.PackHandshakeRetransmission(retransmitHandshakePacket, pth)
+				if err != nil {
+					return err
+				}
+				if err = s.sendPackedPacket(packet, pth); err != nil {
+					return err
+				}
+				// not execute
+				fmt.Println("continue a new for!")
+				continue
+			}
+
+			// XXX Some automatic ACK generation should be done someway
+			var ack *wire.AckFrame
+
+			ack = pth.GetAckFrame()
+			if ack != nil {
+				s.packer.QueueControlFrame(ack, pth)
+			}
+			if ack != nil || hasStreamRetransmission {
+				swf := pth.sentPacketHandler.GetStopWaitingFrame(hasStreamRetransmission)
+				if swf != nil {
+					s.packer.QueueControlFrame(swf, pth)
+				}
+			}
+
+			// Also add CLOSE_PATH frames, if any
+			for cpf := s.streamFramer.PopClosePathFrame(); cpf != nil; cpf = s.streamFramer.PopClosePathFrame() {
+				s.packer.QueueControlFrame(cpf, pth)
+			}
+
+			// Also add ADD ADDRESS frames, if any
+			for aaf := s.streamFramer.PopAddAddressFrame(); aaf != nil; aaf = s.streamFramer.PopAddAddressFrame() {
+				s.packer.QueueControlFrame(aaf, pth)
+			}
+
+			// Also add PATHS frames, if any
+			for pf := s.streamFramer.PopPathsFrame(); pf != nil; pf = s.streamFramer.PopPathsFrame() {
+				s.packer.QueueControlFrame(pf, pth)
+			}
+
+			// This pkt is Packet, sent is true
+			// windowUpdateFrames is always nil
+			//if windowUpdateFrames == nil {
+			//	fmt.Println("windowUpdateFrames is nil!")
+			//}
+			pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline)
 			if err != nil {
+				if err == ackhandler.ErrTooManyTrackedSentPackets {
+					utils.Errorf("Closing episode")
+					if sch.SchedulerName == "dqnAgent" && sch.Training {
+						sch.TrainingAgent.CloseEpisode(uint64(s.connectionID), -100, false)
+					}
+				}
 				return err
+			}
+			windowUpdateFrames = nil
+			if !sent {
+				// Prevent sending empty packets
+				fmt.Println("sent is not true, into ackRemainingPaths.")
+				return sch.ackRemainingPaths(s, windowUpdateFrames)
+			}
+
+			// Duplicate traffic when it was sent on an unknown performing path
+			// FIXME adapt for new paths coming during the connection
+			if pth.rttStats.SmoothedRTT() == 0 {
+				currentQuota := sch.quotas[pth.pathID]
+				// Was the packet duplicated on all potential paths?
+			duplicateLoop:
+				for pathID, tmpPth := range s.paths {
+					if pathID == protocol.InitialPathID || pathID == pth.pathID {
+						fmt.Println("pathID is 0, continue!")
+						continue
+					}
+					if sch.quotas[pathID] < currentQuota && tmpPth.sentPacketHandler.SendingAllowed() {
+						// Duplicate it
+						pth.sentPacketHandler.DuplicatePacket(pkt)
+						// almost not execute
+						fmt.Println("Because smoothedRTT == 0, duplicatePacket!")
+						break duplicateLoop
+					}
+				}
+			}
+
+			// And try pinging on potentially failed paths
+			if fromPth != nil && fromPth.potentiallyFailed.Get() {
+				err = s.sendPing(fromPth)
+				fmt.Println("try pinging on potentially failed paths.")
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
+}
+
+func uniformDeadlineGenerator(min int, max int) time.Time {
+	uniformDist := distuv.Uniform{
+		Min: float64(min), // min value
+		Max: float64(max), // max value
+	}
+	randFloat := uniformDist.Rand()
+	randInt := int(randFloat)
+
+	Deadline := time.Now().Add(time.Duration(randInt) * time.Millisecond)
+
+	return Deadline
+}
+
+func normalDeadlineGenerator(mu int, sigma int) time.Time {
+	normalDist := distuv.Normal{
+		Mu:    float64(mu),    // 均值
+		Sigma: float64(sigma), // 标准差
+	}
+	randFloat := normalDist.Rand()
+	randInt := int(randFloat)
+
+	//cut off deadline
+	lowerBound := mu - 3*sigma
+	upperBound := mu + 3*sigma
+	if randInt < lowerBound || randInt > upperBound {
+		// 超过界限，将随机数设为界限值
+		if randInt < lowerBound {
+			randInt = lowerBound
+		} else {
+			randInt = upperBound
+		}
+	}
+
+	Deadline := time.Now().Add(time.Duration(randInt) * time.Millisecond)
+
+	return Deadline
 }

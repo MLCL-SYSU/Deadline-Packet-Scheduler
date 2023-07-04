@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	// "math/rand"
 
 	"github.com/lucas-clemente/quic-go/congestion"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
@@ -86,8 +87,8 @@ type sentPacketHandler struct {
 	retransmissions uint64
 	losses          uint64
 
-	ackedBytes			protocol.ByteCount
-	sentBytes				protocol.ByteCount
+	ackedBytes protocol.ByteCount
+	sentBytes  protocol.ByteCount
 }
 
 // NewSentPacketHandler creates a new sentPacketHandler
@@ -126,6 +127,10 @@ func (h *sentPacketHandler) largestInOrderAcked() protocol.PacketNumber {
 	return h.LargestAcked
 }
 
+func (h *sentPacketHandler) GetLastPackets() uint64 {
+	return uint64(h.lastSentPacketNumber)
+}
+
 func (h *sentPacketHandler) ShouldSendRetransmittablePacket() bool {
 	return h.numNonRetransmittablePackets >= protocol.MaxNonRetransmittablePackets
 }
@@ -158,6 +163,10 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 
 	packet.Frames = stripNonRetransmittableFrames(packet.Frames)
 	isRetransmittable := len(packet.Frames) != 0
+	//czy——deadline should be set in the function of packer_packet
+	// if len(packet.Frames) != 0 {
+	// 	packet.Deadline = time.Now().Add(rand.Intn(50)*time.Millisecond)
+	// }
 
 	if isRetransmittable {
 		packet.SendTime = now
@@ -168,7 +177,9 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 	} else {
 		h.numNonRetransmittablePackets++
 	}
-
+	// fmt.Println("Sent packet function!")
+	fmt.Println("Sent packet:", packet.PacketNumber, "with", packet.Length, "bytes", ". In sendtime:", packet.SendTime, ". Deadline:", packet.Deadline, ".")
+	fmt.Println("Deadline-SendTime:", packet.Deadline.Sub(packet.SendTime), ".")
 	h.congestion.OnPacketSent(
 		now,
 		h.bytesInFlight,
@@ -490,7 +501,7 @@ func (h *sentPacketHandler) GetSentBytes() protocol.ByteCount {
 	return h.sentBytes
 }
 
-func (h *sentPacketHandler) GetCongestionWindow() protocol.ByteCount{
+func (h *sentPacketHandler) GetCongestionWindow() protocol.ByteCount {
 	return h.congestion.GetCongestionWindow()
 }
 
@@ -535,7 +546,7 @@ func (h *sentPacketHandler) SendingAllowed() bool {
 		utils.Debugf("Congestion limited: bytes in flight %d, window %d",
 			h.bytesInFlight,
 			h.congestion.GetCongestionWindow())
-	}else if maxTrackedLimited{
+	} else if maxTrackedLimited {
 		utils.Debugf("Max tracked limited: %d",
 			protocol.PacketNumber(len(h.retransmissionQueue)+h.packetHistory.Len()))
 	}

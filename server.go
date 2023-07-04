@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -205,12 +206,12 @@ func populateServerConfig(config *Config) *Config {
 		KeepAlive:                             config.KeepAlive,
 		MaxReceiveStreamFlowControlWindow:     maxReceiveStreamFlowControlWindow,
 		MaxReceiveConnectionFlowControlWindow: maxReceiveConnectionFlowControlWindow,
-		SchedulerName:												 config.SchedulerName,
-		WeightsFile:													 config.WeightsFile,
-		Training:															 config.Training,
-		Epsilon:															 config.Epsilon,
-		AllowedCongestion:											config.AllowedCongestion,
-		DumpExperiences:												config.DumpExperiences,
+		SchedulerName:                         config.SchedulerName,
+		WeightsFile:                           config.WeightsFile,
+		Training:                              config.Training,
+		Epsilon:                               config.Epsilon,
+		AllowedCongestion:                     config.AllowedCongestion,
+		DumpExperiences:                       config.DumpExperiences,
 	}
 }
 
@@ -307,6 +308,10 @@ func (s *server) handlePacket(rcvRawPacket *receivedRawPacket) error {
 	}
 
 	hdr, err := wire.ParsePublicHeader(r, protocol.PerspectiveClient, version)
+
+	//czy: get deadline from received packet header
+	fmt.Println("Server Received packet. PacketNumber:", hdr.PacketNumber, "Deadline:", hdr.Deadline)
+
 	if err == wire.ErrPacketWithUnknownVersion {
 		_, err = pconn.WriteTo(wire.WritePublicReset(connID, 0, 0), remoteAddr)
 		return err
