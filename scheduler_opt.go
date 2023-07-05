@@ -369,3 +369,38 @@ func PolicyToSelectPath(policy []int, eligiblePath []*path) []*path {
 
 	return selectedPaths
 }
+
+func (sch *scheduler) canMadeDecision(s *session, batch int) bool {
+	// Create a slice to store the eligible paths
+	fmt.Println("Enter can MadeDecision!")
+	eligiblePaths := []*path{}
+	for pathID, pth := range s.paths {
+		if pathID == protocol.InitialPathID {
+			continue
+		} else {
+			fmt.Println("has other path")
+			pthCwnd := pth.sentPacketHandler.GetCongestionWindow() // notice this Cwnd is bytes
+			pthInflight := pth.sentPacketHandler.GetBytesInFlight()
+			// path that has remaining cwnd is available
+			if pthCwnd >= pthInflight {
+				eligiblePaths = append(eligiblePaths, pth)
+			}
+		}
+	}
+
+	// Collect all the path CWNDs
+	var allPathCwnds int
+
+	for _, pth := range eligiblePaths {
+		remainingCwnd := pth.sentPacketHandler.GetCongestionWindow() - pth.sentPacketHandler.GetBytesInFlight()
+		fmt.Println("remainCwnds:", remainingCwnd)
+		// TODO:remainingCwnd / protocol.MaxPacketSize is a uint64
+		allPathCwnds = allPathCwnds + int(remainingCwnd/protocol.MaxPacketSize)
+		fmt.Println("allPathCwnds:", allPathCwnds)
+	}
+	if allPathCwnds >= batch {
+		return true
+	} else {
+		return false
+	}
+}

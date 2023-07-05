@@ -1412,8 +1412,15 @@ func (sch *scheduler) sendPacket(s *session) error {
 			deadlineBatch := GenerateBatchDeadline(batch)
 
 			// select paths here for batch packet——Default: all select first path
-			// TODO：realize the linOpt
 			s.pathsLock.RLock()
+			// whether scheduler can make decision
+			if len(s.paths) > 1 && !sch.canMadeDecision(s, batch) {
+				// can not make decision
+				s.pathsLock.RUnlock()
+				fmt.Println("windows is less than batchSize, can not make decision and update Frame!")
+				windowUpdateFrames := s.getWindowUpdateFrames(false)
+				return sch.ackRemainingPaths(s, windowUpdateFrames)
+			}
 			pthBatch := sch.selectBatchPath(s, hasRetransmission, hasStreamRetransmission, fromPth, deadlineBatch)
 			s.pathsLock.RUnlock()
 			fmt.Println("Deadline Batch:", deadlineBatch)
