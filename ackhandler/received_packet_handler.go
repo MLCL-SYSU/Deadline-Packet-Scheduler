@@ -32,6 +32,9 @@ type receivedPacketHandler struct {
 	//czy
 	packetsHasDeadline  uint64
 	packetsMeetDeadline uint64
+
+	packetsMeetDeadlineSinceLastAck   uint16
+	packetNotMeetDeadlineSinceLastAck uint16
 }
 
 // NewReceivedPacketHandler creates a new receivedPacketHandler
@@ -136,6 +139,8 @@ func (h *receivedPacketHandler) GetAckFrame() *wire.AckFrame {
 		LargestAcked:       h.largestObserved,
 		LowestAcked:        ackRanges[len(ackRanges)-1].First,
 		PacketReceivedTime: h.largestObservedReceivedTime,
+		NumMeetDeadline:    h.packetsMeetDeadlineSinceLastAck,
+		NumHasDeadline:     h.packetNotMeetDeadlineSinceLastAck,
 	}
 
 	if len(ackRanges) > 1 {
@@ -147,6 +152,8 @@ func (h *receivedPacketHandler) GetAckFrame() *wire.AckFrame {
 	h.ackQueued = false
 	h.packetsReceivedSinceLastAck = 0
 	h.retransmittablePacketsReceivedSinceLastAck = 0
+	h.packetsMeetDeadlineSinceLastAck = 0
+	h.packetNotMeetDeadlineSinceLastAck = 0
 
 	return ack
 }
@@ -174,8 +181,12 @@ func (h *receivedPacketHandler) StatisticPacketMeet(hdr *wire.PublicHeader, rcvT
 			//meet deadline
 			h.packetsHasDeadline++
 			h.packetsMeetDeadline++
+
+			h.packetsMeetDeadlineSinceLastAck++
+			h.packetNotMeetDeadlineSinceLastAck++
 		} else { //not meet deadline
 			h.packetsHasDeadline++
+			h.packetNotMeetDeadlineSinceLastAck++
 		}
 	}
 	return nil

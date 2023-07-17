@@ -3,6 +3,7 @@ package wire
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
@@ -32,6 +33,10 @@ type AckFrame struct {
 	// this field Will not be set for received ACKs frames
 	PacketReceivedTime time.Time
 	DelayTime          time.Duration
+
+	//czy:add meeting Deadline Information
+	NumMeetDeadline uint16
+	NumHasDeadline  uint16
 }
 
 // ParseAckFrame reads an ACK frame
@@ -61,6 +66,7 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 	// U bit used to indicate that the ACK contains PathID
 	if typeByte&0x10 == 0x10 {
 		pathID, err := r.ReadByte()
+		fmt.Println("pathID:", pathID)
 		if err != nil {
 			return nil, err
 		}
@@ -68,16 +74,22 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 	}
 
 	largestAcked, err := utils.GetByteOrder(version).ReadUintN(r, largestAckedLen)
+	fmt.Println("LargestAcked:", largestAcked)
 	if err != nil {
 		return nil, err
 	}
 	frame.LargestAcked = protocol.PacketNumber(largestAcked)
 
 	delay, err := utils.GetByteOrder(version).ReadUfloat16(r)
+	fmt.Println("Delay:", delay)
 	if err != nil {
 		return nil, err
 	}
 	frame.DelayTime = time.Duration(delay) * time.Microsecond
+
+	//czy:parse Deadline information in byte flow
+	frame.NumMeetDeadline, err = utils.GetByteOrder(version).ReadUint16(r)
+	frame.NumHasDeadline, err = utils.GetByteOrder(version).ReadUint16(r)
 
 	var numAckBlocks uint8
 	if hasMissingRanges {
@@ -92,6 +104,7 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 	}
 
 	ackBlockLength, err := utils.GetByteOrder(version).ReadUintN(r, missingSequenceNumberDeltaLen)
+	fmt.Println("ackBlockLenth", ackBlockLength)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +179,7 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 
 	var numTimestamp byte
 	numTimestamp, err = r.ReadByte()
+	fmt.Println("numTimestamp:", numTimestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +255,10 @@ func (f *AckFrame) Write(b *bytes.Buffer, version protocol.VersionNumber) error 
 
 	f.DelayTime = time.Since(f.PacketReceivedTime)
 	utils.GetByteOrder(version).WriteUfloat16(b, uint64(f.DelayTime/time.Microsecond))
+
+	//czy: write Deadline information in byte flow
+	utils.GetByteOrder(version).WriteUint16(b, uint16(f.NumMeetDeadline))
+	utils.GetByteOrder(version).WriteUint16(b, uint16(f.NumHasDeadline))
 
 	var numRanges uint64
 	var numRangesWritten uint64
@@ -348,7 +366,8 @@ func (f *AckFrame) Write(b *bytes.Buffer, version protocol.VersionNumber) error 
 
 // MinLength of a written frame
 func (f *AckFrame) MinLength(version protocol.VersionNumber) (protocol.ByteCount, error) {
-	length := protocol.ByteCount(1 + 2 + 1) // 1 TypeByte, 2 ACK delay time, 1 Num Timestamp
+	length := protocol.ByteCount(1 + 2 + 6 + 1) // 1 TypeByte, 2 ACK delay time, 2*2=4 two uint16 deadline information, 1 Num Timestamp
+	// Deadline Information maybe is 4 bytes, but 4 bytes will error, and every large 4, e.g 5,6 is no error
 	length += protocol.ByteCount(protocol.GetPacketNumberLength(f.LargestAcked))
 
 	missingSequenceNumberDeltaLen := protocol.ByteCount(f.getMissingSequenceNumberDeltaLen())

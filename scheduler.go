@@ -1351,6 +1351,7 @@ func (sch *scheduler) ackRemainingPaths(s *session, totalWindowUpdateFrames []*w
 			var err error
 			if ackTmp != nil {
 				// Avoid internal error bug
+				//fmt.Println("ackTmp：", ackTmp.NumMeetDeadline)
 				packet, err = s.packer.PackAckPacket(pthTmp)
 			} else {
 				var deadline time.Time
@@ -1465,14 +1466,12 @@ func (sch *scheduler) sendPacket(s *session) error {
 					return err
 				}
 				// not execute
-				fmt.Println("continue a new for!")
 				continue
 			}
 
 			// XXX Some automatic ACK generation should be done someway
 			var ack *wire.AckFrame
 
-			fmt.Println("pth befor GetAckFrame:", pth)
 			ack = pth.GetAckFrame()
 			if ack != nil {
 				s.packer.QueueControlFrame(ack, pth)

@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// some parameter
+//const alpha = 1.15 //alpha must large than 1
+const banditAvaiable = true
+
 func linOpt(packetsNum []int, packetsDeadline []float64, pathDelay []float64, pathCwnd []float64) []int {
 	// TODO:packetsNum is unnecessary
 	S := len(packetsNum)     // num of packets
@@ -217,7 +221,14 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 	pathDelays := make([]float64, len(eligiblePaths))
 	pathCWNDs := make([]float64, len(eligiblePaths))
 	for i, pth := range eligiblePaths {
-		pathDelays[i] = (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
+		//pathDelays[i] = (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
+		tempPathDelays := (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
+		if banditAvaiable {
+			pathDelays[i] = tempPathDelays * float64(pth.sentPacketHandler.GetPathAlpha())
+		} else {
+			pathDelays[i] = tempPathDelays
+		}
+		fmt.Println("slect arm pathID:", pth.pathID, ", alpha:", pth.sentPacketHandler.GetPathAlpha())
 		remainingCwnd := pth.sentPacketHandler.GetCongestionWindow() - pth.sentPacketHandler.GetBytesInFlight()
 		// TODO:remainingCwnd / protocol.MaxPacketSize is a uint64
 		pathCWNDs[i] = float64(remainingCwnd / protocol.MaxPacketSize)
@@ -237,25 +248,6 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 	paths := PolicyToSelectPath(policy, eligiblePaths)
 	fmt.Println("paketsDeadline:", packetsDeadline)
 	fmt.Println("policy:", policy)
-
-	//paths := make([]*path, len(deadlineBatch))
-	//// a flag
-	//canSend := false
-	//for i := 0; i < len(deadlineBatch); i++ {
-	//	for pathID, pth := range s.paths {
-	//		if pathID == protocol.PathID(1) && pth.SendingAllowed() {
-	//			paths[i] = pth
-	//			canSend = true
-	//			break
-	//		}
-	//	}
-	//}
-	//
-	//if canSend {
-	//	return paths
-	//} else {
-	//	return nil
-	//}
 	return paths
 }
 

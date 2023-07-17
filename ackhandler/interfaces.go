@@ -34,6 +34,13 @@ type SentPacketHandler interface {
 	GetSentBytes() protocol.ByteCount
 	GetCongestionWindow() protocol.ByteCount
 	GetBytesInFlight() protocol.ByteCount
+
+	GetPathAlpha() float32
+
+	// czy
+	CalculateMeetRatio() float32
+	CalculateInstantMeetRatio() float32
+	CalculateHistoryMeetRatio() float32
 }
 
 // ReceivedPacketHandler handles ACKs needed to send for incoming packets

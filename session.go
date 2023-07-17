@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -512,6 +513,19 @@ func (s *session) handleFrames(fs []wire.Frame, p *path) error {
 		case *wire.StreamFrame:
 			err = s.handleStreamFrame(frame)
 		case *wire.AckFrame:
+			//curMeetRatio := p.sentPacketHandler.CalculateMeetRatio()
+			//fmt.Println("PathID:", p.pathID, ".CurMeetRatio:", curMeetRatio)
+
+			//instantMeetRatio := p.sentPacketHandler.CalculateInstantMeetRatio()
+			//if !isFloat32Zero(instantMeetRatio) {
+			//	fmt.Println("PathID:", p.pathID, ".InstantMeetRatio:", instantMeetRatio)
+			//}
+
+			historyMeetRatio := p.sentPacketHandler.CalculateHistoryMeetRatio()
+			if !isFloat32Zero(historyMeetRatio) {
+				fmt.Println("PathID:", p.pathID, ".HistoryMeetRatio:", historyMeetRatio)
+			}
+			fmt.Println("wire.AckFrame:", frame)
 			err = s.handleAckFrame(frame)
 		case *wire.ConnectionCloseFrame:
 			s.closeRemote(qerr.Error(frame.ErrorCode, frame.ReasonPhrase))
@@ -968,4 +982,9 @@ func (s *session) RemoteAddr() net.Addr {
 
 func (s *session) GetVersion() protocol.VersionNumber {
 	return s.version
+}
+
+func isFloat32Zero(f float32) bool {
+	epsilon := float32(1e-6)
+	return math.Abs(float64(f)) < float64(epsilon)
 }

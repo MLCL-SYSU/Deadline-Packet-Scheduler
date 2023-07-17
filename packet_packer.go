@@ -89,6 +89,8 @@ func (p *packetPacker) PackAckPacket(pth *path) (*packedPacket, error) {
 	encLevel, sealer := p.cryptoSetup.GetSealer()
 	ph := p.getPublicHeader(encLevel, pth)
 	frames := []wire.Frame{p.ackFrame[pth.pathID]}
+	fmt.Println("ackFrame:", p.ackFrame[pth.pathID])
+	//fmt.Println("frames:", frames)
 	if p.stopWaiting[pth.pathID] != nil {
 		p.stopWaiting[pth.pathID].PacketNumber = ph.PacketNumber
 		p.stopWaiting[pth.pathID].PacketNumberLen = ph.PacketNumberLen
@@ -170,7 +172,6 @@ func (p *packetPacker) PackPacket(pth *path, deadline time.Time) (*packedPacket,
 		p.controlFrames = p.controlFrames[1:len(p.controlFrames)]
 	} else {
 		maxSize := protocol.MaxPacketSize - protocol.ByteCount(sealer.Overhead()) - publicHeaderLength
-		//fmt.Println("frame's MaxSize:", maxSize)
 		payloadFrames, err = p.composeNextPacket(maxSize, p.canSendData(encLevel), pth)
 		if err != nil {
 			fmt.Println("composeNextPacket error!")
@@ -198,12 +199,8 @@ func (p *packetPacker) PackPacket(pth *path, deadline time.Time) (*packedPacket,
 		return nil, err
 	}
 	//czy
-	//rand_num := rand.Intn(50)
-	//deadline := time.Now().Add(time.Duration(rand_num) * time.Millisecond)
 	fmt.Println("PackPacket--PacketNumber:", publicHeader.PacketNumber)
 	fmt.Println("PackPacket--deadline:", deadline)
-	//fmt.Println("PackPacket--deadline:", deadline, "--rand_num:", rand_num)
-	//fmt.Println("PackPacket--payloadFrames:", payloadFrames)
 	//only packet with frames can be add deadline
 	return &packedPacket{
 		number:          publicHeader.PacketNumber,
@@ -361,9 +358,9 @@ func (p *packetPacker) writeAndSealPacket(
 		return nil, err
 	}
 	payloadStartIndex := buffer.Len()
-	//fmt.Println("buffer.Len(), header:", buffer.Len())
 
 	for _, frame := range payloadFrames {
+		//fmt.Println("Write Frame", frame)
 		err := frame.Write(buffer, p.version)
 		if err != nil {
 			return nil, err
@@ -374,14 +371,7 @@ func (p *packetPacker) writeAndSealPacket(
 		return nil, errors.New("PacketPacker BUG: packet too large")
 	}
 
-	//fmt.Println("In writeAndSealPacket, public header:", raw)
-	//fmt.Println("buffer.Len()", buffer.Len())
 	raw = raw[0:buffer.Len()]
-	//fmt.Println("In writeAndSealPacket, public header + frame:", raw)
-	//fmt.Println("raw[payloadStartIndex:payloadStartIndex]:", raw[payloadStartIndex:payloadStartIndex])
-	//fmt.Println("raw[payloadStartIndex:]:", raw[payloadStartIndex:])
-	//fmt.Println("publicHeader.PacketNumber", publicHeader.PacketNumber)
-	//fmt.Println("raw[:payloadStartIndex]", raw[:payloadStartIndex])
 	_ = sealer.Seal(raw[payloadStartIndex:payloadStartIndex], raw[payloadStartIndex:], publicHeader.PacketNumber, raw[:payloadStartIndex])
 	raw = raw[0 : buffer.Len()+sealer.Overhead()]
 	//fmt.Println("sealer.Overhead()", sealer.Overhead())

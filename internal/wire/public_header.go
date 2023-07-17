@@ -336,7 +336,7 @@ func (h *PublicHeader) GetLength(pers protocol.Perspective) (protocol.ByteCount,
 	if h.MultipathFlag {
 		length += 1
 	}
-	length += 15
+	length += 15 //Default:15
 
 	return length, nil
 }
