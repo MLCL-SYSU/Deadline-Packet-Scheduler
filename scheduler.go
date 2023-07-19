@@ -73,7 +73,9 @@ type scheduler struct {
 	dumpAgent experienceAgent
 
 	//czy
-	NotSentPackets uint64
+	NotSentPackets   uint64
+	totalCost        float64
+	totalPktWithCost uint64
 }
 
 func (sch *scheduler) setup() {
@@ -1208,6 +1210,14 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 
 // Lock of s.paths must be free (in case of log print)
 func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame, pth *path, deadline time.Time) (*ackhandler.Packet, bool, error) {
+	// add cost here
+	if pth.pathID == protocol.PathID(1) {
+		sch.totalCost += path1Cost
+		sch.totalPktWithCost += 1
+	} else if pth.pathID == protocol.PathID(3) {
+		sch.totalCost += path3Cost
+		sch.totalPktWithCost += 1
+	}
 	// add a retransmittable frame
 	if pth.sentPacketHandler.ShouldSendRetransmittablePacket() {
 		s.packer.QueueControlFrame(&wire.PingFrame{}, pth)
@@ -1256,6 +1266,11 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 				}
 				notSentPkts := sch.GetNotSentPackets()
 				utils.Infof("Not Sent Packets Num:%d", notSentPkts) //only linOpt not zeros
+				TotalCost := sch.GetTotalCost()
+				totalPkts := sch.GetTotalPktWithCost()
+				fmt.Println("Total Packets:", totalPkts)
+				fmt.Println("scheduler total cost:", TotalCost)
+				fmt.Println("normalization total cost", TotalCost/float64(totalPkts))
 				// peekaboo log
 				// utils.Infof("Action: %d", sch.actionvector)
 				// utils.Infof("record: %d", sch.record)
@@ -1372,6 +1387,14 @@ func (sch *scheduler) ackRemainingPaths(s *session, totalWindowUpdateFrames []*w
 
 func (sch *scheduler) GetNotSentPackets() uint64 {
 	return sch.NotSentPackets
+}
+
+func (sch *scheduler) GetTotalCost() float64 {
+	return sch.totalCost
+}
+
+func (sch *scheduler) GetTotalPktWithCost() uint64 {
+	return sch.totalPktWithCost
 }
 
 func (sch *scheduler) sendPacket(s *session) error {

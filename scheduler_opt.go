@@ -5,12 +5,17 @@ import (
 	"github.com/draffensperger/golp"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"math/rand"
+	"sort"
 	"time"
 )
 
 // some parameter
 //const alpha = 1.15 //alpha must large than 1
-const banditAvaiable = true
+const banditAvailable = false
+const costConstraintAvailable = true
+const path1Cost = 1.5 //cellular link
+const path3Cost = 0.5 //WiFi link
+const budget = 4
 
 func linOpt(packetsNum []int, packetsDeadline []float64, pathDelay []float64, pathCwnd []float64) []int {
 	// TODO:packetsNum is unnecessary
@@ -90,6 +95,91 @@ func linOpt(packetsNum []int, packetsDeadline []float64, pathDelay []float64, pa
 	return policy
 }
 
+func linOptCost(packetsNum []int, packetsDeadline []float64, pathDelay []float64,
+	pathCwnd []float64, pathCost []float64, budgetConstraint float64) []int {
+	// TODO:packetsNum is unnecessary
+	S := len(packetsNum)     // num of packets
+	n := len(pathDelay)      // num of path
+	policy := make([]int, S) // scheduler decision: [1 2] means packet 1 schedule in path 1, packet 2 schedule in path 2
+
+	// Constraint coefficient matrix
+	A := make([][]float64, S+n+1) // add one cost constraint
+	for i := range A {
+		A[i] = make([]float64, S*n)
+	}
+	// packet constraint: decision of one packet in all path leq 1
+	for i := 0; i < S; i++ {
+		for j := i; j < S*n; j += S {
+			A[i][j] = 1
+		}
+	}
+	// CWND constraint: packets in one path leq CWND
+	for i := 0; i < n; i++ {
+		for j := (i * S); j < ((i + 1) * S); j++ {
+			A[S+i][j] = 1
+		}
+	}
+
+	for i := 0; i < S*n; i++ {
+		A[S+n][i] = pathCost[i/S]
+	}
+
+	b := make([]float64, S+n+1)
+	for i := 0; i < S; i++ {
+		b[i] = 1
+	}
+	copy(b[S:], pathCwnd)
+	b[S+n] = budgetConstraint
+
+	fmt.Println("A:", A, "b:", b)
+
+	// Objective function
+	// satisfy matrix
+	satisfyDeadline := make([][]float64, n)
+	for i := 0; i < n; i++ {
+		satisfyDeadline[i] = make([]float64, S)
+		for j := 0; j < S; j++ {
+			if packetsDeadline[j] >= pathDelay[i] {
+				satisfyDeadline[i][j] = 1
+			}
+		}
+	}
+	// transform to one-dimension vector
+	C := make([]float64, S*n)
+	for i := 0; i < n; i++ {
+		for j := 0; j < S; j++ {
+			C[i*S+j] = satisfyDeadline[i][j]
+		}
+	}
+
+	fmt.Println("C:", C)
+	// Solve
+	lp := golp.NewLP(0, S*n+1)
+	lp.SetObjFn(C)
+	lp.SetMaximize()
+
+	for i := 0; i < len(A); i++ {
+		lp.AddConstraint(A[i], golp.LE, b[i])
+	}
+
+	lp.Solve()
+	vars := lp.Variables()
+
+	fmt.Println("vars:", vars)
+
+	result := make([][]float64, S)
+	for i := range result {
+		result[i] = make([]float64, n)
+		for j := range result[i] {
+			result[i][j] = vars[i+j*S]
+		}
+	}
+	fmt.Println("result:", result)
+	// Convert solution to policy
+	policy = resultToPolicyWithGreedyRounding(result, S, n)
+	return policy
+}
+
 func resultToPolicy(result [][]float64) []int {
 	// TODO:just adapt to two paths
 	policy := make([]int, len(result))
@@ -115,7 +205,59 @@ func resultToPolicy(result [][]float64) []int {
 	return policy
 }
 
-//rounding
+//Greedy Rounding
+func resultToPolicyWithGreedyRounding(result [][]float64, S int, n int) []int {
+	policy := make([]int, len(result))
+
+	for i := 0; i < S; i++ {
+		probSort := make([]float64, n)
+		copy(probSort, result[i])
+
+		sort.Slice(probSort, func(j, k int) bool {
+			return probSort[j] > probSort[k]
+		})
+
+		fmt.Println("probSort:", probSort)
+
+		for j := 0; j < n; j++ {
+			if probSort[j] == 1 {
+				index := findIndex(result[i], probSort[j])
+				policy[i] = index + 1
+				break
+			} else {
+				if result[i][j] != 0 && policy[i] == 0 {
+					policyCandidate := []int{j + 1, 0} // rounding到第j个path或不发
+					prob := []float64{result[i][j], 1 - result[i][j]}
+					policy[i] = chooseByProb(policyCandidate, prob)
+				}
+			}
+		}
+	}
+
+	return policy
+}
+
+func findIndex(arr []float64, target float64) int {
+	for i, val := range arr {
+		if val == target {
+			return i
+		}
+	}
+	return -1
+}
+
+// chooseByProb choose a value by probability
+func chooseByProb(value []int, Prob []float64) int {
+	r := rand.Float64()
+	sum := 0.0
+	for i, p := range Prob {
+		sum += p
+		if r < sum {
+			return value[i]
+		}
+	}
+	return value[len(value)-1]
+}
 
 // GenerateBatchDeadline Generator of batch transfer
 // TODO:add min/max value interface
@@ -220,15 +362,26 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 	// Collect the path one way delays and CWNDs
 	pathDelays := make([]float64, len(eligiblePaths))
 	pathCWNDs := make([]float64, len(eligiblePaths))
+	// cost constraint
+	pathCost := make([]float64, len(eligiblePaths))
 	for i, pth := range eligiblePaths {
 		//pathDelays[i] = (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
 		tempPathDelays := (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
-		if banditAvaiable {
+		if banditAvailable {
 			pathDelays[i] = tempPathDelays * float64(pth.sentPacketHandler.GetPathAlpha())
 		} else {
 			pathDelays[i] = tempPathDelays
 		}
-		fmt.Println("slect arm pathID:", pth.pathID, ", alpha:", pth.sentPacketHandler.GetPathAlpha())
+
+		if pth.pathID == protocol.PathID(1) {
+			pathCost[i] = path1Cost
+		} else if pth.pathID == protocol.PathID(3) {
+			pathCost[i] = path3Cost
+		}
+
+		if banditAvailable {
+			fmt.Println("select arm pathID:", pth.pathID, ", alpha:", pth.sentPacketHandler.GetPathAlpha())
+		}
 		remainingCwnd := pth.sentPacketHandler.GetCongestionWindow() - pth.sentPacketHandler.GetBytesInFlight()
 		// TODO:remainingCwnd / protocol.MaxPacketSize is a uint64
 		pathCWNDs[i] = float64(remainingCwnd / protocol.MaxPacketSize)
@@ -244,90 +397,39 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 	fmt.Println("pathOneWayDealys:", pathDelays)
 	fmt.Println("pathCWNDs:", pathCWNDs)
 
-	policy := linOpt(packetsNum, packetsDeadline, pathDelays, pathCWNDs)
+	// linOpt solver, when costConstraintAvailable is true, call linOptCost
+	// policy is a 1*batchSize vector
+	var policy []int
+	if costConstraintAvailable {
+		policy = linOptCost(packetsNum, packetsDeadline, pathDelays, pathCWNDs, pathCost, budget)
+	} else {
+		policy = linOpt(packetsNum, packetsDeadline, pathDelays, pathCWNDs)
+	}
 	paths := PolicyToSelectPath(policy, eligiblePaths)
 	fmt.Println("paketsDeadline:", packetsDeadline)
 	fmt.Println("policy:", policy)
+
+	// compute cost
+	if costConstraintAvailable {
+		cost := computeCost(paths)
+		fmt.Println("Current Cost:", cost)
+		//sch.totalCost += cost // can not add total cost here, because maybe some packets is not sent
+	}
 	return paths
 }
 
-func linOptPathCost(packetsNum []int, packetsDeadline []float64, packetsPriority []float64, pathDelay []float64, pathCwnd []float64, pathCost []float64, budgetConstraint float64) []int {
-	S := len(packetsNum)     // num of packets
-	n := len(pathDelay)      // num of path
-	policy := make([]int, S) // scheduler decision
-
-	// Constraint coefficient matrix
-	A := make([][]float64, S+n)
-	for i := range A {
-		A[i] = make([]float64, S*n)
-	}
-	for i := 0; i < S; i++ {
-		for j := i; j < S*n; j += S {
-			A[i][j] = 1
+func computeCost(paths []*path) float64 {
+	var cost float64
+	for _, pth := range paths {
+		if pth != nil {
+			if pth.pathID == protocol.PathID(1) {
+				cost += path1Cost
+			} else if pth.pathID == protocol.PathID(3) {
+				cost += path3Cost
+			}
 		}
 	}
-	for i := 0; i < n; i++ {
-		for j := (i * S); j < ((i + 1) * S); j++ {
-			A[S+i][j] = 1
-		}
-	}
-
-	b := make([]float64, S+n)
-	for i := 0; i < S; i++ {
-		b[i] = 1
-	}
-	copy(b[S:], pathCwnd)
-
-	// Objective function
-	satisfyDeadline := make([]float64, 2*S)
-	for i := 0; i < S; i++ {
-		satisfyDeadline[i] = 0
-		if packetsDeadline[i] >= pathDelay[0] {
-			satisfyDeadline[i] = 1
-		}
-		if packetsDeadline[i] >= pathDelay[1] {
-			satisfyDeadline[i+S] = 1
-		}
-	}
-	C := make([]float64, S*n)
-	for i := 0; i < S*n; i++ {
-		C[i] = satisfyDeadline[i]
-	}
-
-	fmt.Println("C:", C)
-	// Solve
-	lp := golp.NewLP(0, S*n)
-	lp.SetObjFn(C)
-	lp.SetMaximize()
-
-	for i := 0; i < len(A); i++ {
-		lp.AddConstraint(A[i], golp.LE, b[i])
-	}
-	fmt.Println("A:", A, "b:", b)
-
-	lp.Solve()
-	vars := lp.Variables()
-	fmt.Println("vars:", vars)
-	result := make([][]float64, S)
-	for i := range result {
-		result[i] = make([]float64, n)
-		for j := range result[i] {
-			result[i][j] = vars[i+j*S]
-		}
-	}
-
-	// Convert solution to policy
-	for i := 0; i < len(result); i++ {
-		if result[i][0] == 0 && result[i][1] == 0 {
-			policy[i] = 0
-		} else if result[i][0] != 0 {
-			policy[i] = 1
-		} else {
-			policy[i] = 2
-		}
-	}
-
-	return policy
+	return cost
 }
 
 func generateSequence(length int) []int {
