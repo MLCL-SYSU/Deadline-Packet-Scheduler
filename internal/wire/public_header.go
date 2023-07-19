@@ -37,7 +37,8 @@ type PublicHeader struct {
 	SupportedVersions    []protocol.VersionNumber // VersionNumbers sent by the server
 	DiversificationNonce []byte
 	//czy
-	Deadline time.Time
+	Deadline   time.Time
+	CurNotSent uint8
 }
 
 // Write writes a public header. Warning: This API should not be considered stable and will change soon.
@@ -129,6 +130,9 @@ func (h *PublicHeader) Write(b *bytes.Buffer, version protocol.VersionNumber, pe
 	}
 	_, err = b.Write(deadlineTimeBytes)
 	//fmt.Println("After add deadline:", b.Bytes())
+
+	// write curNotSent uint16
+	b.WriteByte(h.CurNotSent)
 
 	return nil
 }
@@ -297,6 +301,10 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 	deadlineBytesToRead := make([]byte, 15)
 	_, err = b.Read(deadlineBytesToRead)
 	header.Deadline.UnmarshalBinary(deadlineBytesToRead)
+
+	// parse curNotSent
+	header.CurNotSent, err = b.ReadByte()
+	fmt.Println("Parse curNotSent:", header.CurNotSent)
 	//fmt.Println("Parse deadline:", header.Deadline)
 	return header, nil
 }
@@ -336,7 +344,8 @@ func (h *PublicHeader) GetLength(pers protocol.Perspective) (protocol.ByteCount,
 	if h.MultipathFlag {
 		length += 1
 	}
-	length += 15 //Default:15
+	length += 15 //Default:15 for deadline
+	length += 1  // One byte for uint8 curNotSent
 
 	return length, nil
 }

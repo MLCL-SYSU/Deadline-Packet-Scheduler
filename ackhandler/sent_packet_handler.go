@@ -35,6 +35,7 @@ const (
 	minTailLossProbeTimeout = 10 * time.Millisecond
 	// czy: discount reward factor gamma
 	gamma = 0.5
+	batch = 6
 )
 
 var (
@@ -95,6 +96,8 @@ type sentPacketHandler struct {
 
 	// czy:Change Point Detection Information
 	changePDInfo ChangePointDetectionHandler
+
+	curNotSent uint8 // save the current Not Sent
 }
 
 type ChangePointDetectionHandler struct {
@@ -239,13 +242,15 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 	return nil
 }
 
-func (h *sentPacketHandler) ReceivedAck(ackFrame *wire.AckFrame, withPacketNumber protocol.PacketNumber, rcvTime time.Time) error {
+func (h *sentPacketHandler) ReceivedAck(ackFrame *wire.AckFrame, withPacketNumber protocol.PacketNumber,
+	rcvTime time.Time) error {
 	if ackFrame.LargestAcked > h.lastSentPacketNumber {
 		return errAckForUnsentPacket
 	}
 	fmt.Println("received AckFrame:", ackFrame)
 	fmt.Println("Meet Deadline packet number:", ackFrame.NumMeetDeadline)
 	fmt.Println("All Deadline Packet number:", ackFrame.NumHasDeadline)
+	fmt.Println("Receive Cur Not Sent:", ackFrame.CurNotSent)
 
 	h.updateDeadlineInformation(ackFrame)
 
@@ -720,6 +725,9 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 
 	// Update Bandit Information
 	reward := h.CalculateHistoryMeetRatio()
+	fmt.Println("old reward is:", reward)
+	reward = reward - float32(ackFrame.CurNotSent)/float32(batch)
+	fmt.Println("cur reward is：", reward)
 	h.changePDInfo.updateBanditInfo(reward)
 
 	// Update alpha
@@ -794,7 +802,7 @@ func (cpd *ChangePointDetectionHandler) updateHistoricalData(newMeetDeadline, ne
 	cpd.historicalMeetDeadlines = append(cpd.historicalMeetDeadlines, newMeetDeadline)
 	cpd.historicalHasDeadlines = append(cpd.historicalHasDeadlines, newHasDeadline)
 
-	historyLen := 5
+	historyLen := 10
 	//check slice is not more history len
 	if len(cpd.historicalMeetDeadlines) > historyLen {
 		cpd.historicalMeetDeadlines = cpd.historicalMeetDeadlines[len(cpd.historicalMeetDeadlines)-historyLen:]

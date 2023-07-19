@@ -20,6 +20,7 @@ import (
 
 const banditAlpha = 0.75
 const banditDimension = 6
+const batch = 6 // linOpt Batch Size
 
 type scheduler struct {
 	// XXX Currently round-robin based, inspired from MPTCP scheduler
@@ -76,6 +77,7 @@ type scheduler struct {
 	NotSentPackets   uint64
 	totalCost        float64
 	totalPktWithCost uint64
+	curNotSentPacket uint8
 }
 
 func (sch *scheduler) setup() {
@@ -1209,7 +1211,8 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 }
 
 // Lock of s.paths must be free (in case of log print)
-func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame, pth *path, deadline time.Time) (*ackhandler.Packet, bool, error) {
+func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame,
+	pth *path, deadline time.Time, curNotSent uint8) (*ackhandler.Packet, bool, error) {
 	// add cost here
 	if pth.pathID == protocol.PathID(1) {
 		sch.totalCost += path1Cost
@@ -1222,7 +1225,7 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 	if pth.sentPacketHandler.ShouldSendRetransmittablePacket() {
 		s.packer.QueueControlFrame(&wire.PingFrame{}, pth)
 	}
-	packet, err := s.packer.PackPacket(pth, deadline)
+	packet, err := s.packer.PackPacket(pth, deadline, curNotSent)
 	if err != nil || packet == nil {
 		// always trigger by payloadFrame = 0
 		fmt.Println("PackPacket error!")
@@ -1366,11 +1369,12 @@ func (sch *scheduler) ackRemainingPaths(s *session, totalWindowUpdateFrames []*w
 			var err error
 			if ackTmp != nil {
 				// Avoid internal error bug
-				//fmt.Println("ackTmp：", ackTmp.NumMeetDeadline)
+				//fmt.Println("ackTmp curNotSent：", ackTmp.CurNotSent)
 				packet, err = s.packer.PackAckPacket(pthTmp)
 			} else {
 				var deadline time.Time
-				packet, err = s.packer.PackPacket(pthTmp, deadline)
+				curNotSent := uint8(0)
+				packet, err = s.packer.PackPacket(pthTmp, deadline, curNotSent)
 			}
 			if err != nil {
 				return err
@@ -1400,7 +1404,7 @@ func (sch *scheduler) GetTotalPktWithCost() uint64 {
 func (sch *scheduler) sendPacket(s *session) error {
 	var pth *path
 	// packet batch size
-	batch := 6 //default:6
+	//batch := 6 //default:6
 
 	// Update leastUnacked value of paths
 	s.pathsLock.RLock()
@@ -1521,6 +1525,15 @@ func (sch *scheduler) sendPacket(s *session) error {
 				s.packer.QueueControlFrame(pf, pth)
 			}
 
+			// Initial curNotSentPacket
+			sch.curNotSentPacket = 0
+			for _, pth := range pthBatch {
+				if pth == nil {
+					sch.curNotSentPacket++
+				}
+			}
+			fmt.Println("CurNotSentPacket:", sch.curNotSentPacket)
+
 			// PerformSendingPacket at pthBatch
 			// This pkt is Packet, sent is true
 			for i := 0; i < batch; i++ {
@@ -1533,7 +1546,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 					continue
 				}
 				// TODO:pth may be nil
-				pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline)
+				pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline, sch.curNotSentPacket)
 				if err != nil {
 					if err == ackhandler.ErrTooManyTrackedSentPackets {
 						utils.Errorf("Closing episode")
@@ -1656,7 +1669,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 			//if windowUpdateFrames == nil {
 			//	fmt.Println("windowUpdateFrames is nil!")
 			//}
-			pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline)
+			pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline, uint8(0))
 			if err != nil {
 				if err == ackhandler.ErrTooManyTrackedSentPackets {
 					utils.Errorf("Closing episode")

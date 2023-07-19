@@ -237,6 +237,9 @@ func (p *path) handlePacketImpl(pkt *receivedPacket) error {
 		return err
 	}
 
+	//czy: Update curNotSent in sentPacketHandler, and sent it with ack
+	p.receivedPacketHandler.UpdateCurNotSent(uint16(hdr.CurNotSent))
+
 	if err != nil {
 		return err
 	}

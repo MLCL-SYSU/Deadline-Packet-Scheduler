@@ -37,6 +37,7 @@ type AckFrame struct {
 	//czy:add meeting Deadline Information
 	NumMeetDeadline uint16
 	NumHasDeadline  uint16
+	CurNotSent      uint16
 }
 
 // ParseAckFrame reads an ACK frame
@@ -90,6 +91,7 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 	//czy:parse Deadline information in byte flow
 	frame.NumMeetDeadline, err = utils.GetByteOrder(version).ReadUint16(r)
 	frame.NumHasDeadline, err = utils.GetByteOrder(version).ReadUint16(r)
+	frame.CurNotSent, err = utils.GetByteOrder(version).ReadUint16(r)
 
 	var numAckBlocks uint8
 	if hasMissingRanges {
@@ -259,6 +261,7 @@ func (f *AckFrame) Write(b *bytes.Buffer, version protocol.VersionNumber) error 
 	//czy: write Deadline information in byte flow
 	utils.GetByteOrder(version).WriteUint16(b, uint16(f.NumMeetDeadline))
 	utils.GetByteOrder(version).WriteUint16(b, uint16(f.NumHasDeadline))
+	utils.GetByteOrder(version).WriteUint16(b, uint16(f.CurNotSent))
 
 	var numRanges uint64
 	var numRangesWritten uint64
@@ -366,7 +369,7 @@ func (f *AckFrame) Write(b *bytes.Buffer, version protocol.VersionNumber) error 
 
 // MinLength of a written frame
 func (f *AckFrame) MinLength(version protocol.VersionNumber) (protocol.ByteCount, error) {
-	length := protocol.ByteCount(1 + 2 + 6 + 1) // 1 TypeByte, 2 ACK delay time, 2*2=4 two uint16 deadline information, 1 Num Timestamp
+	length := protocol.ByteCount(1 + 2 + 7 + 1) // 1 TypeByte, 2 ACK delay time, 2*2=4 two uint16 deadline information, 1 Num Timestamp
 	// Deadline Information maybe is 4 bytes, but 4 bytes will error, and every large 4, e.g 5,6 is no error
 	length += protocol.ByteCount(protocol.GetPacketNumberLength(f.LargestAcked))
 

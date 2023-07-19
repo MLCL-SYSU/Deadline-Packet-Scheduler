@@ -291,6 +291,7 @@ func (c *client) handlePacket(rcvRawPacket *receivedRawPacket) {
 	//fmt.Println("In Client handlePacket, packet bytes is:", packet)
 	hdr, err := wire.ParsePublicHeader(r, protocol.PerspectiveServer, c.version)
 
+	fmt.Println("Client curNotSentNum:", hdr.CurNotSent)
 	//czy: get deadline from received packet header
 	fmt.Println("Client Received packet. PacketNumber:", hdr.PacketNumber, "Deadline:", hdr.Deadline)
 	fmt.Println("receive time:", rcvTime)

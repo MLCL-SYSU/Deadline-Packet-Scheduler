@@ -56,4 +56,7 @@ type ReceivedPacketHandler interface {
 	GetStatistics() (uint64, uint64, uint64)
 
 	StatisticPacketMeet(hdr *wire.PublicHeader, rcvTime time.Time) error
+
+	//czy
+	UpdateCurNotSent(curNotSent uint16)
 }
