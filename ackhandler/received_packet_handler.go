@@ -37,6 +37,7 @@ type receivedPacketHandler struct {
 	packetNotMeetDeadlineSinceLastAck uint16
 
 	curNotSent uint16
+	alpha      uint16
 }
 
 // NewReceivedPacketHandler creates a new receivedPacketHandler
@@ -144,6 +145,7 @@ func (h *receivedPacketHandler) GetAckFrame() *wire.AckFrame {
 		NumMeetDeadline:    h.packetsMeetDeadlineSinceLastAck,
 		NumHasDeadline:     h.packetNotMeetDeadlineSinceLastAck,
 		CurNotSent:         h.curNotSent,
+		Alpha:              h.alpha,
 	}
 
 	if len(ackRanges) > 1 {
@@ -197,4 +199,11 @@ func (h *receivedPacketHandler) StatisticPacketMeet(hdr *wire.PublicHeader, rcvT
 
 func (h *receivedPacketHandler) UpdateCurNotSent(curNotSent uint16) {
 	h.curNotSent = curNotSent
+}
+
+func (h *receivedPacketHandler) UpdateAlpha(alpha uint16) {
+	// Default alpha value is 10
+	if alpha != 0 {
+		h.alpha = alpha
+	}
 }

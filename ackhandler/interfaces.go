@@ -59,4 +59,5 @@ type ReceivedPacketHandler interface {
 
 	//czy
 	UpdateCurNotSent(curNotSent uint16)
+	UpdateAlpha(alpha uint16)
 }

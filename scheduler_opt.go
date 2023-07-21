@@ -16,6 +16,8 @@ const costConstraintAvailable = false
 const path1Cost = 1.5 //cellular link
 const path3Cost = 0.5 //WiFi link
 const budget = 4
+const alpha1 = 1.1
+const alpha2 = 1.2
 
 func linOpt(packetsNum []int, packetsDeadline []float64, pathDelay []float64, pathCwnd []float64) []int {
 	// TODO:packetsNum is unnecessary
@@ -265,7 +267,7 @@ func GenerateBatchDeadline(size int) []int {
 	deadline := make([]int, size)
 	for i := 0; i < size; i++ {
 		//randNum := rand.Intn(50)
-		randNum := rand.Intn(30) + 10 //10-40 ms
+		randNum := rand.Intn(30) + 13 //10-40 ms
 		deadline[i] = randNum
 	}
 	return deadline
@@ -279,6 +281,9 @@ func (sch *scheduler) selectBatchPath(s *session, hasRetransmission bool,
 	if sch.SchedulerName == "BatchLinOpt" {
 		fmt.Println("Batch Scheduler: BatchLinOpt")
 		return sch.selectBatchlinOpt(s, hasRetransmission, hasStreamRetransmission, fromPth, deadlineBatch)
+	} else if sch.SchedulerName == "BatchEDF" {
+		fmt.Println("Batch Scheduler: EDF")
+		return sch.selectBatchEDF(s, hasRetransmission, hasStreamRetransmission, fromPth, deadlineBatch)
 	} else {
 		// Default, all select first path
 		fmt.Println("Batch Scheduler: default--First path")
@@ -368,7 +373,9 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 		//pathDelays[i] = (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
 		tempPathDelays := (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
 		if banditAvailable {
-			pathDelays[i] = tempPathDelays * float64(pth.sentPacketHandler.GetPathAlpha())
+			//pathDelays[i] = tempPathDelays * float64(pth.sentPacketHandler.GetPathAlpha())
+			pathDelays[i] = tempPathDelays * alpha1
+			//pathDelays[i] = tempPathDelays * alpha2
 		} else {
 			pathDelays[i] = tempPathDelays
 		}
@@ -416,6 +423,36 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 		//sch.totalCost += cost // can not add total cost here, because maybe some packets is not sent
 	}
 	return paths
+}
+
+func (sch *scheduler) selectBatchEDF(s *session,
+	hasRetransmission bool, hasStreamRetransmission bool,
+	fromPth *path, deadlineBatch []int) []*path {
+
+	// Sort Deadline, will change scheduler.go DeadlineBatch
+	sort.Ints(deadlineBatch)
+
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		paths := make([]*path, len(deadlineBatch))
+		for i := range paths {
+			paths[i] = s.paths[protocol.InitialPathID]
+		}
+		return paths
+	}
+
+	// Create a slice to store the eligible paths
+	eligiblePaths := []*path{}
+
+	// Iterate and pick out the pathBatch through minRTT
+	for i := 0; i < len(deadlineBatch); i++ {
+		pth := sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
+		eligiblePaths = append(eligiblePaths, pth)
+	}
+
+	return eligiblePaths
 }
 
 func computeCost(paths []*path) float64 {

@@ -1212,7 +1212,7 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 
 // Lock of s.paths must be free (in case of log print)
 func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame,
-	pth *path, deadline time.Time, curNotSent uint8) (*ackhandler.Packet, bool, error) {
+	pth *path, deadline time.Time, curNotSent uint8, alpha uint8) (*ackhandler.Packet, bool, error) {
 	// add cost here
 	if pth.pathID == protocol.PathID(1) {
 		sch.totalCost += path1Cost
@@ -1225,7 +1225,7 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 	if pth.sentPacketHandler.ShouldSendRetransmittablePacket() {
 		s.packer.QueueControlFrame(&wire.PingFrame{}, pth)
 	}
-	packet, err := s.packer.PackPacket(pth, deadline, curNotSent)
+	packet, err := s.packer.PackPacket(pth, deadline, curNotSent, alpha)
 	if err != nil || packet == nil {
 		// always trigger by payloadFrame = 0
 		fmt.Println("PackPacket error!")
@@ -1370,11 +1370,12 @@ func (sch *scheduler) ackRemainingPaths(s *session, totalWindowUpdateFrames []*w
 			if ackTmp != nil {
 				// Avoid internal error bug
 				//fmt.Println("ackTmp curNotSent：", ackTmp.CurNotSent)
+				//fmt.Println("ackTmp alpha：", ackTmp.Alpha)
 				packet, err = s.packer.PackAckPacket(pthTmp)
 			} else {
 				var deadline time.Time
 				curNotSent := uint8(0)
-				packet, err = s.packer.PackPacket(pthTmp, deadline, curNotSent)
+				packet, err = s.packer.PackPacket(pthTmp, deadline, curNotSent, uint8(10))
 			}
 			if err != nil {
 				return err
@@ -1427,7 +1428,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 	//czy:这个逻辑后面估计得改，目前是每次循环选一个path，打包一个packet
 	// Repeatedly try sending until we don't have any more data, or run out of the congestion window
 	fmt.Println("A new sendPacket function.")
-	if sch.SchedulerName == "BatchLinOpt" {
+	if len(sch.SchedulerName) > 5 && sch.SchedulerName[:5] == "Batch" {
 		fmt.Println("Batch packet transfer!")
 		for {
 			// We first check for retransmissions
@@ -1449,7 +1450,9 @@ func (sch *scheduler) sendPacket(s *session) error {
 				windowUpdateFrames := s.getWindowUpdateFrames(false)
 				return sch.ackRemainingPaths(s, windowUpdateFrames)
 			}
+			fmt.Println("Before select path, Deadline:", deadlineBatch)
 			pthBatch := sch.selectBatchPath(s, hasRetransmission, hasStreamRetransmission, fromPth, deadlineBatch)
+			fmt.Println("After select path, Deadline:", deadlineBatch)
 			s.pathsLock.RUnlock()
 			fmt.Println("Deadline Batch:", deadlineBatch)
 
@@ -1546,7 +1549,9 @@ func (sch *scheduler) sendPacket(s *session) error {
 					continue
 				}
 				// TODO:pth may be nil
-				pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline, sch.curNotSentPacket)
+				alpha := pth.sentPacketHandler.GetPathAlpha() * 10.0
+				alpha_10 := int(math.Round(float64(alpha))) // alpha * 10, and sent to client
+				pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline, sch.curNotSentPacket, uint8(alpha_10))
 				if err != nil {
 					if err == ackhandler.ErrTooManyTrackedSentPackets {
 						utils.Errorf("Closing episode")
@@ -1669,7 +1674,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 			//if windowUpdateFrames == nil {
 			//	fmt.Println("windowUpdateFrames is nil!")
 			//}
-			pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline, uint8(0))
+			pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline, uint8(0), uint8(10))
 			if err != nil {
 				if err == ackhandler.ErrTooManyTrackedSentPackets {
 					utils.Errorf("Closing episode")

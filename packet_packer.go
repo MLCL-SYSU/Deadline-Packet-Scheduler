@@ -79,7 +79,7 @@ func (p *packetPacker) PackPing(pf *wire.PingFrame, pth *path) (*packedPacket, e
 	var deadline time.Time
 	fmt.Println("PackPing--deadline:", deadline)
 	curNotSent := uint8(0)
-	return p.PackPacket(pth, deadline, curNotSent)
+	return p.PackPacket(pth, deadline, curNotSent, uint8(1))
 }
 
 func (p *packetPacker) PackAckPacket(pth *path) (*packedPacket, error) {
@@ -137,7 +137,7 @@ func (p *packetPacker) PackHandshakeRetransmission(packet *ackhandler.Packet, pt
 
 // PackPacket packs a new packet
 // the other controlFrames are sent in the next packet, but might be queued and sent in the next packet if the packet would overflow MaxPacketSize otherwise
-func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint8) (*packedPacket, error) {
+func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint8, alpha uint8) (*packedPacket, error) {
 	fmt.Println("PackPacket!")
 	if p.streamFramer.HasCryptoStreamFrame() {
 		return p.packCryptoPacket(pth)
@@ -150,6 +150,7 @@ func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint
 	//czy
 	publicHeader.Deadline = deadline
 	publicHeader.CurNotSent = curNotSent
+	publicHeader.Alpha = alpha
 
 	publicHeaderLength, err := publicHeader.GetLength(p.perspective)
 	if err != nil {

@@ -34,8 +34,9 @@ const (
 	// Minimum tail loss probe time in ms
 	minTailLossProbeTimeout = 10 * time.Millisecond
 	// czy: discount reward factor gamma
-	gamma = 0.5
-	batch = 6
+	gamma      = 0.5
+	batch      = 6
+	historyLen = 10
 )
 
 var (
@@ -251,6 +252,7 @@ func (h *sentPacketHandler) ReceivedAck(ackFrame *wire.AckFrame, withPacketNumbe
 	fmt.Println("Meet Deadline packet number:", ackFrame.NumMeetDeadline)
 	fmt.Println("All Deadline Packet number:", ackFrame.NumHasDeadline)
 	fmt.Println("Receive Cur Not Sent:", ackFrame.CurNotSent)
+	fmt.Println("Receive Alpha", ackFrame.Alpha)
 
 	h.updateDeadlineInformation(ackFrame)
 
@@ -728,7 +730,7 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 	fmt.Println("old reward is:", reward)
 	reward = reward - float32(ackFrame.CurNotSent)/float32(batch)
 	fmt.Println("cur reward is：", reward)
-	h.changePDInfo.updateBanditInfo(reward)
+	h.changePDInfo.updateBanditInfo(reward, ackFrame.Alpha)
 
 	// Update alpha
 	h.changePDInfo.updateAlpha()
@@ -742,17 +744,38 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 	fmt.Println("totalHasDeadline:", h.changePDInfo.totalHasDeadline)
 }
 
-func (cpd *ChangePointDetectionHandler) updateBanditInfo(reward float32) {
+func (cpd *ChangePointDetectionHandler) updateBanditInfo(reward float32, alpha uint16) {
+	// Find arm Index of alpha
+	alphaTrue := float32(alpha) / float32(10)
+	armIndex := findIndexOfAlpha(alphaTrue, cpd.banditInformation.armsAlpha)
+	fmt.Println("alpha:", alphaTrue, ", armIndex:", armIndex)
 	// update reward
 	//cpd.banditInformation.totalReward[cpd.banditInformation.curArmIndex] += reward
 
+	fmt.Println("old total reward:", cpd.banditInformation.totalReward[armIndex])
 	//update discount reward
-	cpd.banditInformation.totalReward[cpd.banditInformation.curArmIndex] =
-		gamma*cpd.banditInformation.totalReward[cpd.banditInformation.curArmIndex] + reward
-
+	cpd.banditInformation.totalReward[armIndex] =
+		gamma*cpd.banditInformation.totalReward[armIndex] + reward
+	fmt.Println("new total reward:", cpd.banditInformation.totalReward[armIndex])
 	// update numPlays
 	cpd.banditInformation.armsNumPlay[cpd.banditInformation.curArmIndex]++
 	cpd.banditInformation.totalNumPlay++
+}
+
+func findIndexOfAlpha(alpha float32, arm []float32) int {
+	index := 0
+	for i, val := range arm {
+		if isEqualFloat32(val, alpha) {
+			index = i
+		}
+	}
+	return index
+}
+
+func isEqualFloat32(a, b float32) bool {
+	epsilon := 1e-5
+	diff := math.Abs(float64(a) - float64(b))
+	return diff < epsilon
 }
 
 func (cpd *ChangePointDetectionHandler) updateAlpha() {
@@ -802,7 +825,6 @@ func (cpd *ChangePointDetectionHandler) updateHistoricalData(newMeetDeadline, ne
 	cpd.historicalMeetDeadlines = append(cpd.historicalMeetDeadlines, newMeetDeadline)
 	cpd.historicalHasDeadlines = append(cpd.historicalHasDeadlines, newHasDeadline)
 
-	historyLen := 10
 	//check slice is not more history len
 	if len(cpd.historicalMeetDeadlines) > historyLen {
 		cpd.historicalMeetDeadlines = cpd.historicalMeetDeadlines[len(cpd.historicalMeetDeadlines)-historyLen:]
@@ -836,7 +858,6 @@ func (h *sentPacketHandler) CalculateInstantMeetRatio() float32 {
 
 //CalculateHistoryMeetRatio calculate history meet ratio
 func (h *sentPacketHandler) CalculateHistoryMeetRatio() float32 {
-	historyLen := 5
 	if len(h.changePDInfo.historicalMeetDeadlines) < historyLen || len(h.changePDInfo.historicalHasDeadlines) < historyLen {
 		return 0
 	}
@@ -847,5 +868,9 @@ func (h *sentPacketHandler) CalculateHistoryMeetRatio() float32 {
 		hasSum += h.changePDInfo.historicalHasDeadlines[i]
 	}
 
-	return float32(meetSum) / float32(hasSum)
+	if hasSum == uint16(0) {
+		return 0 //if hasSum is zero, will divide by zero, and return NaN
+	} else {
+		return float32(meetSum) / float32(hasSum)
+	}
 }
