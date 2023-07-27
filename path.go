@@ -1,7 +1,6 @@
 package quic
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/lucas-clemente/quic-go/ackhandler"
@@ -232,7 +231,6 @@ func (p *path) handlePacketImpl(pkt *receivedPacket) error {
 		return err
 	}
 	//czy: statistic num of packet which has deadline and meet deadline
-	fmt.Println("Received pathID:", p.pathID, "PacketNumber", hdr.PacketNumber, "Deadline", hdr.Deadline)
 	if err = p.receivedPacketHandler.StatisticPacketMeet(hdr, pkt.rcvTime); err != nil {
 		return err
 	}

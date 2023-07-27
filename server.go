@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -308,9 +307,6 @@ func (s *server) handlePacket(rcvRawPacket *receivedRawPacket) error {
 	}
 
 	hdr, err := wire.ParsePublicHeader(r, protocol.PerspectiveClient, version)
-
-	//czy: get deadline from received packet header
-	fmt.Println("Server Received packet. PacketNumber:", hdr.PacketNumber, "Deadline:", hdr.Deadline)
 
 	if err == wire.ErrPacketWithUnknownVersion {
 		_, err = pconn.WriteTo(wire.WritePublicReset(connID, 0, 0), remoteAddr)

@@ -228,9 +228,7 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 	} else {
 		h.numNonRetransmittablePackets++
 	}
-	// fmt.Println("Sent packet function!")
 	fmt.Println("Sent packet:", packet.PacketNumber, "with", packet.Length, "bytes", ". In sendtime:", packet.SendTime, ". Deadline:", packet.Deadline, ".")
-	fmt.Println("Deadline-SendTime:", packet.Deadline.Sub(packet.SendTime), ".")
 	h.congestion.OnPacketSent(
 		now,
 		h.bytesInFlight,

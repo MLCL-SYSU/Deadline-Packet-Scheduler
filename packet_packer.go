@@ -201,9 +201,6 @@ func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint
 		fmt.Println("writeAndSeadPacket error!")
 		return nil, err
 	}
-	//czy
-	fmt.Println("PackPacket--PacketNumber:", publicHeader.PacketNumber)
-	fmt.Println("PackPacket--deadline:", deadline)
 	//only packet with frames can be add deadline
 	return &packedPacket{
 		number:          publicHeader.PacketNumber,

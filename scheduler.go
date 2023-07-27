@@ -78,6 +78,9 @@ type scheduler struct {
 	totalCost        float64
 	totalPktWithCost uint64
 	curNotSentPacket uint8
+
+	waitPackets []time.Time
+	startTime   time.Time
 }
 
 func (sch *scheduler) setup() {
@@ -113,6 +116,8 @@ func (sch *scheduler) setup() {
 	//TODO: expose to config
 	sch.DumpPath = "/tmp/"
 	sch.dumpAgent.Setup()
+
+	sch.startTime = time.Now()
 
 	sch.cachedState = types.Vector{-1, -1}
 	if sch.SchedulerName == "dqnAgent" {
@@ -1129,6 +1134,22 @@ func (sch *scheduler) selectFirstPath(s *session, hasRetransmission bool, hasStr
 	return nil
 }
 
+func (sch *scheduler) selectSecondPath(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
+	if len(s.paths) <= 1 {
+		if !hasRetransmission && !s.paths[protocol.InitialPathID].SendingAllowed() {
+			return nil
+		}
+		return s.paths[protocol.InitialPathID]
+	}
+	for pathID, pth := range s.paths {
+		if pathID == protocol.PathID(3) && pth.SendingAllowed() {
+			return pth
+		}
+	}
+
+	return nil
+}
+
 func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
 	// XXX Avoid using PathID 0 if there is more than 1 path
 	if len(s.paths) <= 1 {
@@ -1202,6 +1223,9 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 	} else if sch.SchedulerName == "primary" {
 		fmt.Println("Selecting path: primary")
 		return sch.selectFirstPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
+	} else if sch.SchedulerName == "secondPath" {
+		fmt.Println("Selecting path: second")
+		return sch.selectSecondPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else {
 		// Default, rtt
 		fmt.Println("Selecting path: default--rtt")
@@ -1213,6 +1237,9 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 // Lock of s.paths must be free (in case of log print)
 func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame,
 	pth *path, deadline time.Time, curNotSent uint8, alpha uint8) (*ackhandler.Packet, bool, error) {
+	// print cwnd/bytes
+	//fmt.Println("Path ID:", pth.pathID, ",CWND:", pth.sentPacketHandler.GetCongestionWindow())
+
 	// add cost here
 	if pth.pathID == protocol.PathID(1) {
 		sch.totalCost += path1Cost
@@ -1369,8 +1396,6 @@ func (sch *scheduler) ackRemainingPaths(s *session, totalWindowUpdateFrames []*w
 			var err error
 			if ackTmp != nil {
 				// Avoid internal error bug
-				//fmt.Println("ackTmp curNotSent：", ackTmp.CurNotSent)
-				//fmt.Println("ackTmp alpha：", ackTmp.Alpha)
 				packet, err = s.packer.PackAckPacket(pthTmp)
 			} else {
 				var deadline time.Time
@@ -1398,15 +1423,28 @@ func (sch *scheduler) GetTotalCost() float64 {
 	return sch.totalCost
 }
 
+// GetMinimunRTT return the minimun rtt in the whole connection
+func (sch *scheduler) GetMinimunRTT(s *session) float64 {
+	minRtt := math.MaxFloat64
+	for pathID, pth := range s.paths {
+		if pathID == protocol.InitialPathID {
+			continue
+		} else {
+			rtt := float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)
+			if rtt < minRtt {
+				minRtt = rtt
+			}
+		}
+	}
+	return minRtt
+}
+
 func (sch *scheduler) GetTotalPktWithCost() uint64 {
 	return sch.totalPktWithCost
 }
 
 func (sch *scheduler) sendPacket(s *session) error {
 	var pth *path
-	// packet batch size
-	//batch := 6 //default:6
-
 	// Update leastUnacked value of paths
 	s.pathsLock.RLock()
 	for _, pthTmp := range s.paths {
@@ -1438,7 +1476,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 
 			// czy:generate batch size deadline
 			generateTime := time.Now()
-			deadlineBatch := GenerateBatchDeadline(batch)
+			deadlineBatch := sch.GenerateBatchDeadline(batch, generateTime)
 
 			// select paths here for batch packet——Default: all select first path
 			s.pathsLock.RLock()
@@ -1450,11 +1488,20 @@ func (sch *scheduler) sendPacket(s *session) error {
 				windowUpdateFrames := s.getWindowUpdateFrames(false)
 				return sch.ackRemainingPaths(s, windowUpdateFrames)
 			}
-			fmt.Println("Before select path, Deadline:", deadlineBatch)
+			fmt.Println("Past Time:", time.Now().Sub(sch.startTime))
 			pthBatch := sch.selectBatchPath(s, hasRetransmission, hasStreamRetransmission, fromPth, deadlineBatch)
-			fmt.Println("After select path, Deadline:", deadlineBatch)
 			s.pathsLock.RUnlock()
 			fmt.Println("Deadline Batch:", deadlineBatch)
+
+			// LinOptCost will wait for low-cost path
+			if costConstraintAvailable {
+				sch.choosePacketsForLowCost(s, deadlineBatch, pthBatch, generateTime)
+				if sch.maybeUpdateWindow(s) {
+					windowUpdateFrames := s.getWindowUpdateFrames(false)
+					fmt.Println("In COST, windowUpdateFrame")
+					return sch.ackRemainingPaths(s, windowUpdateFrames)
+				}
+			}
 
 			// this pth to deal with the special case, like retransmission
 			// set the first not nil value of pthBatch to pth
@@ -1722,6 +1769,46 @@ func (sch *scheduler) sendPacket(s *session) error {
 			}
 		}
 	}
+}
+
+func (sch *scheduler) choosePacketsForLowCost(s *session, deadlineBatch []int, pthBatch []*path, generateTime time.Time) {
+	minRtt := sch.GetMinimunRTT(s)
+	if isFloat64Zero(minRtt) {
+		// minRTT value is not valid, give up to choose
+		return
+	}
+	for i, deadline := range deadlineBatch {
+		if pthBatch[i] != nil && pthBatch[i].pathID == protocol.PathID(1) && float64(deadline) > (minRtt*3.0/2.0) {
+			fmt.Println("minRTT", minRtt)
+			fmt.Println("Wait Packet Deadline:", deadline)
+			deadlineTime := generateTime.Add(time.Duration(deadline) * time.Millisecond)
+			sch.waitPackets = append(sch.waitPackets, deadlineTime)
+			pthBatch[i] = nil
+		}
+	}
+}
+
+func isFloat64Zero(f float64) bool {
+	epsilon := 1e-6
+	return math.Abs(f) < epsilon
+}
+
+func float64Equal(a, b float64) bool {
+	epsilon := 1e-5
+	return math.Abs(a-b) < epsilon
+}
+
+func (sch *scheduler) maybeUpdateWindow(s *session) bool {
+	if len(s.paths) > 2 {
+		pth := s.paths[protocol.PathID(3)]
+		remainingCwnd := pth.sentPacketHandler.GetCongestionWindow() - pth.sentPacketHandler.GetBytesInFlight()
+		if uint64(remainingCwnd) == uint64(0) {
+			return true
+		}
+	} else {
+		return false
+	}
+	return false
 }
 
 func uniformDeadlineGenerator(min int, max int) time.Time {

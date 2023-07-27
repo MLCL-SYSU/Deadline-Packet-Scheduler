@@ -263,14 +263,21 @@ func chooseByProb(value []int, Prob []float64) int {
 
 // GenerateBatchDeadline Generator of batch transfer
 // TODO:add min/max value interface
-func GenerateBatchDeadline(size int) []int {
-	deadline := make([]int, size)
-	for i := 0; i < size; i++ {
+func (sch *scheduler) GenerateBatchDeadline(size int, curTime time.Time) []int {
+	lenWait := len(sch.waitPackets)
+	Deadline := make([]int, size-lenWait)
+	for i := 0; i < size-lenWait; i++ {
 		//randNum := rand.Intn(50)
-		randNum := rand.Intn(30) + 13 //10-40 ms
-		deadline[i] = randNum
+		randNum := rand.Intn(30) + 10 //10-40 ms
+		Deadline[i] = randNum
 	}
-	return deadline
+	for _, deadlineTime := range sch.waitPackets {
+		durationTime := deadlineTime.Sub(curTime)
+		Deadline = append(Deadline, int(durationTime.Milliseconds()))
+		fmt.Println("new Deadline:", int(durationTime.Milliseconds()))
+	}
+	sch.waitPackets = make([]time.Time, 0)
+	return Deadline
 }
 
 // select path for batch packet
@@ -373,8 +380,8 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 		//pathDelays[i] = (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
 		tempPathDelays := (float64(pth.rttStats.SmoothedRTT()) / float64(time.Millisecond)) / 2
 		if banditAvailable {
-			//pathDelays[i] = tempPathDelays * float64(pth.sentPacketHandler.GetPathAlpha())
-			pathDelays[i] = tempPathDelays * alpha1
+			pathDelays[i] = tempPathDelays * float64(pth.sentPacketHandler.GetPathAlpha())
+			//pathDelays[i] = tempPathDelays * alpha1
 			//pathDelays[i] = tempPathDelays * alpha2
 		} else {
 			pathDelays[i] = tempPathDelays

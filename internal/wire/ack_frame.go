@@ -3,7 +3,6 @@ package wire
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
@@ -68,7 +67,6 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 	// U bit used to indicate that the ACK contains PathID
 	if typeByte&0x10 == 0x10 {
 		pathID, err := r.ReadByte()
-		fmt.Println("pathID:", pathID)
 		if err != nil {
 			return nil, err
 		}
@@ -76,14 +74,12 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 	}
 
 	largestAcked, err := utils.GetByteOrder(version).ReadUintN(r, largestAckedLen)
-	fmt.Println("LargestAcked:", largestAcked)
 	if err != nil {
 		return nil, err
 	}
 	frame.LargestAcked = protocol.PacketNumber(largestAcked)
 
 	delay, err := utils.GetByteOrder(version).ReadUfloat16(r)
-	fmt.Println("Delay:", delay)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +104,6 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 	}
 
 	ackBlockLength, err := utils.GetByteOrder(version).ReadUintN(r, missingSequenceNumberDeltaLen)
-	fmt.Println("ackBlockLenth", ackBlockLength)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +178,6 @@ func ParseAckFrame(r *bytes.Reader, version protocol.VersionNumber) (*AckFrame, 
 
 	var numTimestamp byte
 	numTimestamp, err = r.ReadByte()
-	fmt.Println("numTimestamp:", numTimestamp)
 	if err != nil {
 		return nil, err
 	}
