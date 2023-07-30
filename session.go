@@ -513,10 +513,10 @@ func (s *session) handleFrames(fs []wire.Frame, p *path) error {
 		case *wire.StreamFrame:
 			err = s.handleStreamFrame(frame)
 		case *wire.AckFrame:
-			historyMeetRatio := p.sentPacketHandler.CalculateHistoryMeetRatio()
-			if !isFloat32Zero(historyMeetRatio) {
-				fmt.Println("PathID:", p.pathID, ".HistoryMeetRatio:", historyMeetRatio)
-			}
+			//historyMeetRatio := p.sentPacketHandler.CalculateHistoryMeetRatio()
+			//if !isFloat32Zero(historyMeetRatio) {
+			//	fmt.Println("PathID:", p.pathID, ".HistoryMeetRatio:", historyMeetRatio)
+			//}
 			fmt.Println("wire.AckFrame:", frame)
 			err = s.handleAckFrame(frame)
 		case *wire.ConnectionCloseFrame:

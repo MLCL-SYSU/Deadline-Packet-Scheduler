@@ -10,8 +10,7 @@ import (
 )
 
 // some parameter
-//const alpha = 1.15 //alpha must large than 1
-const banditAvailable = false
+const banditAvailable = true
 const costConstraintAvailable = false
 const path1Cost = 1.5 //cellular link
 const path3Cost = 0.5 //WiFi link
@@ -268,7 +267,7 @@ func (sch *scheduler) GenerateBatchDeadline(size int, curTime time.Time) []int {
 	Deadline := make([]int, size-lenWait)
 	for i := 0; i < size-lenWait; i++ {
 		//randNum := rand.Intn(50)
-		randNum := rand.Intn(30) + 10 //10-40 ms
+		randNum := rand.Intn(30) + 13 //10-40 ms
 		Deadline[i] = randNum
 	}
 	for _, deadlineTime := range sch.waitPackets {

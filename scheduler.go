@@ -1463,7 +1463,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 	// czy:we can generate deadline here, and schedule the packet to be sent at the deadline, then add deadline to packet
 	// then receive packet, get deadline and received time.
 
-	//czy:这个逻辑后面估计得改，目前是每次循环选一个path，打包一个packet
 	// Repeatedly try sending until we don't have any more data, or run out of the congestion window
 	fmt.Println("A new sendPacket function.")
 	if len(sch.SchedulerName) > 5 && sch.SchedulerName[:5] == "Batch" {
