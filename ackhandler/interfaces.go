@@ -40,7 +40,7 @@ type SentPacketHandler interface {
 	// czy
 	CalculateMeetRatio() float32
 	CalculateInstantMeetRatio() float32
-	CalculateHistoryMeetRatio() float32
+	CalculateHistoryMeetRatio(armIndex int) float32
 }
 
 // ReceivedPacketHandler handles ACKs needed to send for incoming packets

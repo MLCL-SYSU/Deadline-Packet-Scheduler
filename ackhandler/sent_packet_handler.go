@@ -107,8 +107,8 @@ type ChangePointDetectionHandler struct {
 	curMeetDeadline         uint16
 	curHasDeadline          uint16
 	alpha                   float32           // RTT discount factor, every RTT has an alpha
-	historicalMeetDeadlines []uint16          // history curMeetDeadline
-	historicalHasDeadlines  []uint16          // history curHasDeadline
+	historicalMeetDeadlines [][]uint16        // history curMeetDeadline
+	historicalHasDeadlines  [][]uint16        // history curHasDeadline
 	banditInformation       BanditInformation // Bandit Information
 }
 
@@ -146,8 +146,10 @@ func NewSentPacketHandler(rttStats *congestion.RTTStats, cong congestion.SendAlg
 		congestion:         congestionControl,
 		onRTOCallback:      onRTOCallback,
 		changePDInfo: ChangePointDetectionHandler{
-			alpha:             1.0,
-			banditInformation: bandit,
+			alpha:                   1.0,
+			banditInformation:       bandit,
+			historicalHasDeadlines:  make([][]uint16, len(bandit.armsAlpha)),
+			historicalMeetDeadlines: make([][]uint16, len(bandit.armsAlpha)),
 		},
 	}
 }
@@ -720,15 +722,20 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 	h.changePDInfo.curMeetDeadline = ackFrame.NumMeetDeadline
 	h.changePDInfo.curHasDeadline = ackFrame.NumHasDeadline
 
+	// Find arm Index of alpha
+	alphaTrue := float32(ackFrame.Alpha) / float32(10)
+	armIndex := findIndexOfAlpha(alphaTrue, h.changePDInfo.banditInformation.armsAlpha)
+	fmt.Println("alpha:", alphaTrue, ", armIndex:", armIndex)
+
 	// Update history Deadline Information
-	h.changePDInfo.updateHistoricalData(ackFrame.NumMeetDeadline, ackFrame.NumHasDeadline)
+	h.changePDInfo.updateHistoricalData(armIndex)
 
 	// Update Bandit Information
-	reward := h.CalculateHistoryMeetRatio()
+	reward := h.CalculateHistoryMeetRatio(armIndex)
 	fmt.Println("old reward is:", reward)
 	reward = reward - float32(ackFrame.CurNotSent)/float32(batch)
 	fmt.Println("cur reward is：", reward)
-	h.changePDInfo.updateBanditInfo(reward, ackFrame.Alpha)
+	h.changePDInfo.updateBanditInfo(reward, armIndex)
 
 	// Update alpha
 	h.changePDInfo.updateAlpha()
@@ -742,14 +749,9 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 	fmt.Println("totalHasDeadline:", h.changePDInfo.totalHasDeadline)
 }
 
-func (cpd *ChangePointDetectionHandler) updateBanditInfo(reward float32, alpha uint16) {
-	// Find arm Index of alpha
-	alphaTrue := float32(alpha) / float32(10)
-	armIndex := findIndexOfAlpha(alphaTrue, cpd.banditInformation.armsAlpha)
-	fmt.Println("alpha:", alphaTrue, ", armIndex:", armIndex)
+func (cpd *ChangePointDetectionHandler) updateBanditInfo(reward float32, armIndex int) {
 	// update reward
 	//cpd.banditInformation.totalReward[cpd.banditInformation.curArmIndex] += reward
-
 	fmt.Println("old total reward:", cpd.banditInformation.totalReward[armIndex])
 	//update discount reward
 	cpd.banditInformation.totalReward[armIndex] =
@@ -819,17 +821,17 @@ func selectBestArm(ucbs []float32) int {
 	return bestArm
 }
 
-func (cpd *ChangePointDetectionHandler) updateHistoricalData(newMeetDeadline, newHasDeadline uint16) {
-	cpd.historicalMeetDeadlines = append(cpd.historicalMeetDeadlines, newMeetDeadline)
-	cpd.historicalHasDeadlines = append(cpd.historicalHasDeadlines, newHasDeadline)
+func (cpd *ChangePointDetectionHandler) updateHistoricalData(armIndex int) {
+	cpd.historicalMeetDeadlines[armIndex] = append(cpd.historicalMeetDeadlines[armIndex], cpd.curMeetDeadline)
+	cpd.historicalHasDeadlines[armIndex] = append(cpd.historicalHasDeadlines[armIndex], cpd.curHasDeadline)
 
 	//check slice is not more history len
-	if len(cpd.historicalMeetDeadlines) > historyLen {
-		cpd.historicalMeetDeadlines = cpd.historicalMeetDeadlines[len(cpd.historicalMeetDeadlines)-historyLen:]
+	if len(cpd.historicalMeetDeadlines[armIndex]) > historyLen {
+		cpd.historicalMeetDeadlines[armIndex] = cpd.historicalMeetDeadlines[armIndex][len(cpd.historicalMeetDeadlines[armIndex])-historyLen:]
 	}
 
-	if len(cpd.historicalHasDeadlines) > historyLen {
-		cpd.historicalHasDeadlines = cpd.historicalHasDeadlines[len(cpd.historicalHasDeadlines)-historyLen:]
+	if len(cpd.historicalHasDeadlines[armIndex]) > historyLen {
+		cpd.historicalHasDeadlines[armIndex] = cpd.historicalHasDeadlines[armIndex][len(cpd.historicalHasDeadlines[armIndex])-historyLen:]
 	}
 
 	fmt.Println("historyMeetDeadline:", cpd.historicalMeetDeadlines)
@@ -855,15 +857,16 @@ func (h *sentPacketHandler) CalculateInstantMeetRatio() float32 {
 }
 
 //CalculateHistoryMeetRatio calculate history meet ratio
-func (h *sentPacketHandler) CalculateHistoryMeetRatio() float32 {
-	if len(h.changePDInfo.historicalMeetDeadlines) < historyLen || len(h.changePDInfo.historicalHasDeadlines) < historyLen {
+func (h *sentPacketHandler) CalculateHistoryMeetRatio(armIndex int) float32 {
+	if len(h.changePDInfo.historicalMeetDeadlines[armIndex]) < historyLen ||
+		len(h.changePDInfo.historicalHasDeadlines[armIndex]) < historyLen {
 		return 0
 	}
 
 	var meetSum, hasSum uint16
-	for i := len(h.changePDInfo.historicalMeetDeadlines) - historyLen; i < len(h.changePDInfo.historicalMeetDeadlines); i++ {
-		meetSum += h.changePDInfo.historicalMeetDeadlines[i]
-		hasSum += h.changePDInfo.historicalHasDeadlines[i]
+	for i := len(h.changePDInfo.historicalMeetDeadlines[armIndex]) - historyLen; i < len(h.changePDInfo.historicalMeetDeadlines[armIndex]); i++ {
+		meetSum += h.changePDInfo.historicalMeetDeadlines[armIndex][i]
+		hasSum += h.changePDInfo.historicalHasDeadlines[armIndex][i]
 	}
 
 	if hasSum == uint16(0) {

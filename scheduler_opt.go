@@ -10,7 +10,6 @@ import (
 )
 
 // some parameter
-//const alpha = 1.15 //alpha must large than 1
 const banditAvailable = false
 const costConstraintAvailable = false
 const path1Cost = 1.5 //cellular link
