@@ -36,7 +36,7 @@ const (
 	// czy: discount reward factor gamma
 	gamma      = 0.5
 	batch      = 6
-	historyLen = 5
+	historyLen = 10
 )
 
 var (
@@ -752,7 +752,6 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 func (cpd *ChangePointDetectionHandler) updateBanditInfo(reward float32, armIndex int) {
 	// update reward
 	//cpd.banditInformation.totalReward[cpd.banditInformation.curArmIndex] += reward
-
 	fmt.Println("old total reward:", cpd.banditInformation.totalReward[armIndex])
 	//update discount reward
 	cpd.banditInformation.totalReward[armIndex] =
