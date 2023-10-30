@@ -513,11 +513,6 @@ func (s *session) handleFrames(fs []wire.Frame, p *path) error {
 		case *wire.StreamFrame:
 			err = s.handleStreamFrame(frame)
 		case *wire.AckFrame:
-			//historyMeetRatio := p.sentPacketHandler.CalculateHistoryMeetRatio()
-			//if !isFloat32Zero(historyMeetRatio) {
-			//	fmt.Println("PathID:", p.pathID, ".HistoryMeetRatio:", historyMeetRatio)
-			//}
-			fmt.Println("wire.AckFrame:", frame)
 			err = s.handleAckFrame(frame)
 		case *wire.ConnectionCloseFrame:
 			s.closeRemote(qerr.Error(frame.ErrorCode, frame.ReasonPhrase))
@@ -783,15 +778,11 @@ func (s *session) handleCloseError(closeErr closeError) error {
 }
 
 func (s *session) sendPacket() error {
-	// fmt.Println("sendPacket")
 	return s.scheduler.sendPacket(s)
 }
 
 func (s *session) sendPackedPacket(packet *packedPacket, pth *path) error {
 	defer putPacketBuffer(packet.raw)
-	//czy
-	//fmt.Println("In sendPackedPacket, packet.raw:", packet.raw)
-	fmt.Println("current select path:", pth.pathID)
 	err := pth.sentPacketHandler.SentPacket(&ackhandler.Packet{
 		PacketNumber:    packet.number,
 		Frames:          packet.frames,
@@ -805,7 +796,6 @@ func (s *session) sendPackedPacket(packet *packedPacket, pth *path) error {
 	}
 	pth.sentPacket <- struct{}{}
 
-	// fmt.Println("sendPackedPacket")
 	s.logPacket(packet, pth.pathID)
 	//czy: only write raw data, where is the PacketNumber and Packet head information
 	return pth.conn.Write(packet.raw)

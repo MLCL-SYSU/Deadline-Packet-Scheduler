@@ -67,7 +67,6 @@ func linOpt(packetsNum []int, packetsDeadline []float64, pathDelay []float64, pa
 		}
 	}
 
-	fmt.Println("C:", C)
 	// Solve
 	lp := golp.NewLP(0, S*n)
 	lp.SetObjFn(C)
@@ -76,12 +75,9 @@ func linOpt(packetsNum []int, packetsDeadline []float64, pathDelay []float64, pa
 	for i := 0; i < len(A); i++ {
 		lp.AddConstraint(A[i], golp.LE, b[i])
 	}
-	fmt.Println("A:", A, "b:", b)
 
 	lp.Solve()
 	vars := lp.Variables()
-
-	fmt.Println("vars:", vars)
 
 	result := make([][]float64, S)
 	for i := range result {
@@ -90,7 +86,6 @@ func linOpt(packetsNum []int, packetsDeadline []float64, pathDelay []float64, pa
 			result[i][j] = vars[i+j*S]
 		}
 	}
-	fmt.Println("result:", result)
 	// Convert solution to policy
 	policy = resultToPolicy(result)
 	return policy
@@ -132,8 +127,6 @@ func linOptCost(packetsNum []int, packetsDeadline []float64, pathDelay []float64
 	copy(b[S:], pathCwnd)
 	b[S+n] = budgetConstraint
 
-	fmt.Println("A:", A, "b:", b)
-
 	// Objective function
 	// satisfy matrix
 	satisfyDeadline := make([][]float64, n)
@@ -153,7 +146,6 @@ func linOptCost(packetsNum []int, packetsDeadline []float64, pathDelay []float64
 		}
 	}
 
-	fmt.Println("C:", C)
 	// Solve
 	lp := golp.NewLP(0, S*n+1)
 	lp.SetObjFn(C)
@@ -166,8 +158,6 @@ func linOptCost(packetsNum []int, packetsDeadline []float64, pathDelay []float64
 	lp.Solve()
 	vars := lp.Variables()
 
-	fmt.Println("vars:", vars)
-
 	result := make([][]float64, S)
 	for i := range result {
 		result[i] = make([]float64, n)
@@ -175,7 +165,6 @@ func linOptCost(packetsNum []int, packetsDeadline []float64, pathDelay []float64
 			result[i][j] = vars[i+j*S]
 		}
 	}
-	fmt.Println("result:", result)
 	// Convert solution to policy
 	policy = resultToPolicyWithGreedyRounding(result, S, n)
 	return policy
@@ -206,7 +195,7 @@ func resultToPolicy(result [][]float64) []int {
 	return policy
 }
 
-//Greedy Rounding
+// Greedy Rounding
 func resultToPolicyWithGreedyRounding(result [][]float64, S int, n int) []int {
 	policy := make([]int, len(result))
 
@@ -217,8 +206,6 @@ func resultToPolicyWithGreedyRounding(result [][]float64, S int, n int) []int {
 		sort.Slice(probSort, func(j, k int) bool {
 			return probSort[j] > probSort[k]
 		})
-
-		fmt.Println("probSort:", probSort)
 
 		for j := 0; j < n; j++ {
 			if probSort[j] == 1 {
@@ -273,7 +260,6 @@ func (sch *scheduler) GenerateBatchDeadline(size int, curTime time.Time) []int {
 	for _, deadlineTime := range sch.waitPackets {
 		durationTime := deadlineTime.Sub(curTime)
 		Deadline = append(Deadline, int(durationTime.Milliseconds()))
-		fmt.Println("new Deadline:", int(durationTime.Milliseconds()))
 	}
 	sch.waitPackets = make([]time.Time, 0)
 	return Deadline
@@ -309,14 +295,6 @@ func (sch *scheduler) selectBatchFirstPath(s *session,
 			paths[i] = s.paths[protocol.InitialPathID]
 		}
 		return paths
-	}
-
-	// some information
-	for pathID, path := range s.paths {
-		fmt.Println("pathID:", pathID)
-		fmt.Println("CWND:", path.sentPacketHandler.GetCongestionWindow())
-		fmt.Println("Inflight Bytes:", path.sentPacketHandler.GetBytesInFlight())
-		fmt.Println("RTT:", path.rttStats.SmoothedRTT())
 	}
 
 	paths := make([]*path, len(deadlineBatch))
@@ -392,9 +370,6 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 			pathCost[i] = path3Cost
 		}
 
-		if banditAvailable {
-			fmt.Println("select arm pathID:", pth.pathID, ", alpha:", pth.sentPacketHandler.GetPathAlpha())
-		}
 		remainingCwnd := pth.sentPacketHandler.GetCongestionWindow() - pth.sentPacketHandler.GetBytesInFlight()
 		// TODO:remainingCwnd / protocol.MaxPacketSize is a uint64
 		pathCWNDs[i] = float64(remainingCwnd / protocol.MaxPacketSize)
@@ -407,8 +382,6 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 
 	packetsNum := generateSequence(len(deadlineBatch))
 	packetsDeadline := convertToIntSlice(deadlineBatch)
-	fmt.Println("pathOneWayDealys:", pathDelays)
-	fmt.Println("pathCWNDs:", pathCWNDs)
 
 	// linOpt solver, when costConstraintAvailable is true, call linOptCost
 	// policy is a 1*batchSize vector
@@ -419,8 +392,6 @@ func (sch *scheduler) selectBatchlinOpt(s *session,
 		policy = linOpt(packetsNum, packetsDeadline, pathDelays, pathCWNDs)
 	}
 	paths := PolicyToSelectPath(policy, eligiblePaths)
-	fmt.Println("paketsDeadline:", packetsDeadline)
-	fmt.Println("policy:", policy)
 
 	// compute cost
 	if costConstraintAvailable {
@@ -509,13 +480,11 @@ func PolicyToSelectPath(policy []int, eligiblePath []*path) []*path {
 
 func (sch *scheduler) canMadeDecision(s *session, batch int) bool {
 	// Create a slice to store the eligible paths
-	fmt.Println("Enter can MadeDecision!")
 	eligiblePaths := []*path{}
 	for pathID, pth := range s.paths {
 		if pathID == protocol.InitialPathID {
 			continue
 		} else {
-			fmt.Println("has other path")
 			pthCwnd := pth.sentPacketHandler.GetCongestionWindow() // notice this Cwnd is bytes
 			pthInflight := pth.sentPacketHandler.GetBytesInFlight()
 			// path that has remaining cwnd is available
@@ -530,10 +499,8 @@ func (sch *scheduler) canMadeDecision(s *session, batch int) bool {
 
 	for _, pth := range eligiblePaths {
 		remainingCwnd := pth.sentPacketHandler.GetCongestionWindow() - pth.sentPacketHandler.GetBytesInFlight()
-		fmt.Println("remainCwnds:", remainingCwnd)
 		// TODO:remainingCwnd / protocol.MaxPacketSize is a uint64
 		allPathCwnds = allPathCwnds + int(remainingCwnd/protocol.MaxPacketSize)
-		fmt.Println("allPathCwnds:", allPathCwnds)
 	}
 	if allPathCwnds >= batch {
 		return true

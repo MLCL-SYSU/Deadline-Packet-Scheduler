@@ -3,7 +3,6 @@ package wire
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
@@ -122,15 +121,11 @@ func (h *PublicHeader) Write(b *bytes.Buffer, version protocol.VersionNumber, pe
 		return errors.New("PublicHeader: PacketNumberLen not set")
 	}
 
-	//czy:deadline
-	//fmt.Println("Before add deadline:", b.Bytes())
 	deadlineTimeBytes, err := h.Deadline.MarshalBinary()
 	if err != nil {
-		fmt.Println("Error writing time to buffer:", err)
 		return nil
 	}
 	_, err = b.Write(deadlineTimeBytes)
-	//fmt.Println("After add deadline:", b.Bytes())
 
 	// write curNotSent uint16
 	b.WriteByte(h.CurNotSent)
@@ -174,11 +169,8 @@ func PeekConnectionID(b *bytes.Reader, packetSentBy protocol.Perspective) (proto
 func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, version protocol.VersionNumber) (*PublicHeader, error) {
 	header := &PublicHeader{}
 
-	//fmt.Println("b:", b, ". Reader.Len():", b.Len())
 	// First byte
 	publicFlagByte, err := b.ReadByte()
-
-	//fmt.Println("After read Flag, Reader.Len():", b.Len())
 
 	if err != nil {
 		return nil, err
@@ -229,8 +221,6 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 		}
 	}
 
-	//fmt.Println("After read connID, Reader.Len():", b.Len())
-
 	if packetSentBy == protocol.PerspectiveServer && publicFlagByte&0x04 > 0 {
 		// TODO: remove the if once the Google servers send the correct value
 		// assume that a packet doesn't contain a diversification nonce if the version flag or the reset flag is set, no matter what the public flag says
@@ -242,7 +232,6 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 			}
 		}
 	}
-	//fmt.Println("After read DiversificationNonce, Reader.Len():", b.Len())
 
 	// Version (optional)
 	if !header.ResetFlag && header.VersionFlag {
@@ -284,8 +273,6 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 		header.PathID = 0
 	}
 
-	//fmt.Println("After read pathID, b: Reader.Len():", b.Len())
-
 	// Packet number
 	if header.hasPacketNumber(packetSentBy) {
 		packetNumber, err := utils.GetByteOrder(version).ReadUintN(b, uint8(header.PacketNumberLen))
@@ -294,10 +281,6 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 		}
 		header.PacketNumber = protocol.PacketNumber(packetNumber)
 	}
-	//fmt.Println("After read packetNumber, Reader.Len():", b.Len())
-	//fmt.Println("In ParsePublicHeader, header.pathID:", header.PathID)
-	//fmt.Println("header.MultipathFlag:", header.MultipathFlag)
-	//fmt.Println("header.PacketNumber:", header.PacketNumber)
 	// parse deadline
 	//And deadline length maybe always 15 bytes
 	deadlineBytesToRead := make([]byte, 15)
@@ -306,10 +289,7 @@ func ParsePublicHeader(b *bytes.Reader, packetSentBy protocol.Perspective, versi
 
 	// parse curNotSent and Alpha
 	header.CurNotSent, err = b.ReadByte()
-	fmt.Println("Parse curNotSent:", header.CurNotSent)
 	header.Alpha, err = b.ReadByte()
-	fmt.Println("Parse ALpha:", header.Alpha)
-	//fmt.Println("Parse deadline:", header.Deadline)
 	return header, nil
 }
 

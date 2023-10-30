@@ -60,7 +60,6 @@ func (p *packetPacker) PackConnectionClose(ccf *wire.ConnectionCloseFrame, pth *
 	encLevel, sealer := p.cryptoSetup.GetSealer()
 	ph := p.getPublicHeader(encLevel, pth)
 	raw, err := p.writeAndSealPacket(ph, frames, sealer, pth)
-	fmt.Println("PackConnectionClose--contains a ConnectionCloseFrame")
 	return &packedPacket{
 		number:          ph.PacketNumber,
 		raw:             raw,
@@ -71,27 +70,22 @@ func (p *packetPacker) PackConnectionClose(ccf *wire.ConnectionCloseFrame, pth *
 
 // PackPing packs a packet that ONLY contains a PingFrame
 func (p *packetPacker) PackPing(pf *wire.PingFrame, pth *path) (*packedPacket, error) {
-	fmt.Println("PackPing--contains a PingFrame")
 	// Add the PingFrame in front of the controlFrames
 	pth.SetLeastUnacked(pth.sentPacketHandler.GetLeastUnacked())
 	p.controlFrames = append([]wire.Frame{pf}, p.controlFrames...)
 	//czy:this deadline is no value
 	var deadline time.Time
-	fmt.Println("PackPing--deadline:", deadline)
 	curNotSent := uint8(0)
 	return p.PackPacket(pth, deadline, curNotSent, uint8(1))
 }
 
 func (p *packetPacker) PackAckPacket(pth *path) (*packedPacket, error) {
-	fmt.Println("PackAckPacket--contains a AckFrame")
 	if p.ackFrame[pth.pathID] == nil {
 		return nil, errors.New("packet packer BUG: no ack frame queued")
 	}
 	encLevel, sealer := p.cryptoSetup.GetSealer()
 	ph := p.getPublicHeader(encLevel, pth)
 	frames := []wire.Frame{p.ackFrame[pth.pathID]}
-	fmt.Println("ackFrame:", p.ackFrame[pth.pathID])
-	//fmt.Println("frames:", frames)
 	if p.stopWaiting[pth.pathID] != nil {
 		p.stopWaiting[pth.pathID].PacketNumber = ph.PacketNumber
 		p.stopWaiting[pth.pathID].PacketNumberLen = ph.PacketNumberLen
@@ -110,7 +104,6 @@ func (p *packetPacker) PackAckPacket(pth *path) (*packedPacket, error) {
 
 // PackHandshakeRetransmission retransmits a handshake packet, that was sent with less than forward-secure encryption
 func (p *packetPacker) PackHandshakeRetransmission(packet *ackhandler.Packet, pth *path) (*packedPacket, error) {
-	fmt.Println("PackHandshakeRetransmission--contains a StopWaitingFrame")
 	if packet.EncryptionLevel == protocol.EncryptionForwardSecure {
 		return nil, errors.New("PacketPacker BUG: forward-secure encrypted handshake packets don't need special treatment")
 	}
@@ -138,7 +131,6 @@ func (p *packetPacker) PackHandshakeRetransmission(packet *ackhandler.Packet, pt
 // PackPacket packs a new packet
 // the other controlFrames are sent in the next packet, but might be queued and sent in the next packet if the packet would overflow MaxPacketSize otherwise
 func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint8, alpha uint8) (*packedPacket, error) {
-	fmt.Println("PackPacket!")
 	if p.streamFramer.HasCryptoStreamFrame() {
 		return p.packCryptoPacket(pth)
 	}
@@ -154,7 +146,6 @@ func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint
 
 	publicHeaderLength, err := publicHeader.GetLength(p.perspective)
 	if err != nil {
-		fmt.Println("GetLength error!")
 		return nil, err
 	}
 	if p.stopWaiting[pth.pathID] != nil {
@@ -177,19 +168,16 @@ func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint
 		maxSize := protocol.MaxPacketSize - protocol.ByteCount(sealer.Overhead()) - publicHeaderLength
 		payloadFrames, err = p.composeNextPacket(maxSize, p.canSendData(encLevel), pth)
 		if err != nil {
-			fmt.Println("composeNextPacket error!")
 			return nil, err
 		}
 	}
 
 	// Check if we have enough frames to send
 	if len(payloadFrames) == 0 {
-		fmt.Println("payloadFrame is 0.")
 		return nil, nil
 	}
 	// Don't send out packets that only contain a StopWaitingFrame
 	if len(payloadFrames) == 1 && p.stopWaiting[pth.pathID] != nil {
-		fmt.Println("contain a StopWaitingFrame.")
 		return nil, nil
 	}
 	p.stopWaiting[pth.pathID] = nil
@@ -198,7 +186,6 @@ func (p *packetPacker) PackPacket(pth *path, deadline time.Time, curNotSent uint
 	//czy:将包头和payload写成数据raw （byte）
 	raw, err := p.writeAndSealPacket(publicHeader, payloadFrames, sealer, pth)
 	if err != nil {
-		fmt.Println("writeAndSeadPacket error!")
 		return nil, err
 	}
 	//only packet with frames can be add deadline
@@ -224,7 +211,6 @@ func (p *packetPacker) packCryptoPacket(pth *path) (*packedPacket, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("packCryptoPacket--PacketNumber:", publicHeader.PacketNumber)
 	return &packedPacket{
 		number:          publicHeader.PacketNumber,
 		raw:             raw,
@@ -243,7 +229,6 @@ func (p *packetPacker) composeNextPacket(
 
 	// STOP_WAITING and ACK will always fit
 	if p.stopWaiting[pth.pathID] != nil {
-		fmt.Println("stopWaiting is not nil.")
 		payloadFrames = append(payloadFrames, p.stopWaiting[pth.pathID])
 		l, err := p.stopWaiting[pth.pathID].MinLength(p.version)
 		if err != nil {
@@ -252,7 +237,6 @@ func (p *packetPacker) composeNextPacket(
 		payloadLength += l
 	}
 	if p.ackFrame[pth.pathID] != nil {
-		fmt.Println("ackFrame is not nil.")
 		payloadFrames = append(payloadFrames, p.ackFrame[pth.pathID])
 		l, err := p.ackFrame[pth.pathID].MinLength(p.version)
 		if err != nil {
@@ -360,13 +344,11 @@ func (p *packetPacker) writeAndSealPacket(
 	payloadStartIndex := buffer.Len()
 
 	for _, frame := range payloadFrames {
-		//fmt.Println("Write Frame", frame)
 		err := frame.Write(buffer, p.version)
 		if err != nil {
 			return nil, err
 		}
 	}
-	//fmt.Println("buffer-header+frame:", buffer.Bytes())
 	if protocol.ByteCount(buffer.Len()+sealer.Overhead()) > protocol.MaxPacketSize {
 		return nil, errors.New("PacketPacker BUG: packet too large")
 	}
@@ -374,13 +356,11 @@ func (p *packetPacker) writeAndSealPacket(
 	raw = raw[0:buffer.Len()]
 	_ = sealer.Seal(raw[payloadStartIndex:payloadStartIndex], raw[payloadStartIndex:], publicHeader.PacketNumber, raw[:payloadStartIndex])
 	raw = raw[0 : buffer.Len()+sealer.Overhead()]
-	//fmt.Println("sealer.Overhead()", sealer.Overhead())
 
 	num := pth.packetNumberGenerator.Pop()
 	if num != publicHeader.PacketNumber {
 		return nil, errors.New("packetPacker BUG: Peeked and Popped packet numbers do not match")
 	}
-	//fmt.Println("In writeAndSealPacket, all raw:", raw)
 	return raw, nil
 }
 

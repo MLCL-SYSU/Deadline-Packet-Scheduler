@@ -34,3 +34,7 @@ Our implementation is based on the MPQUIC-go codebase.
 - Go 1.10.3
 
 - Ubuntu LTS (18.04)
+
+## Implementation
+
+- The implementation of **DA-MPS** and **CEDA-MPS** can be found in `scheduler_opt.go` 

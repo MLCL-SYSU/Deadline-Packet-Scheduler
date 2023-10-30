@@ -230,7 +230,6 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 	} else {
 		h.numNonRetransmittablePackets++
 	}
-	fmt.Println("Sent packet:", packet.PacketNumber, "with", packet.Length, "bytes", ". In sendtime:", packet.SendTime, ". Deadline:", packet.Deadline, ".")
 	h.congestion.OnPacketSent(
 		now,
 		h.bytesInFlight,
@@ -248,11 +247,6 @@ func (h *sentPacketHandler) ReceivedAck(ackFrame *wire.AckFrame, withPacketNumbe
 	if ackFrame.LargestAcked > h.lastSentPacketNumber {
 		return errAckForUnsentPacket
 	}
-	fmt.Println("received AckFrame:", ackFrame)
-	fmt.Println("Meet Deadline packet number:", ackFrame.NumMeetDeadline)
-	fmt.Println("All Deadline Packet number:", ackFrame.NumHasDeadline)
-	fmt.Println("Receive Cur Not Sent:", ackFrame.CurNotSent)
-	fmt.Println("Receive Alpha", ackFrame.Alpha)
 
 	h.updateDeadlineInformation(ackFrame)
 
@@ -725,16 +719,13 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 	// Find arm Index of alpha
 	alphaTrue := float32(ackFrame.Alpha) / float32(10)
 	armIndex := findIndexOfAlpha(alphaTrue, h.changePDInfo.banditInformation.armsAlpha)
-	fmt.Println("alpha:", alphaTrue, ", armIndex:", armIndex)
 
 	// Update history Deadline Information
 	h.changePDInfo.updateHistoricalData(armIndex)
 
 	// Update Bandit Information
 	reward := h.CalculateHistoryMeetRatio(armIndex)
-	fmt.Println("old reward is:", reward)
 	reward = reward - float32(ackFrame.CurNotSent)/float32(batch)
-	fmt.Println("cur reward is：", reward)
 	h.changePDInfo.updateBanditInfo(reward, armIndex)
 
 	// Update alpha
@@ -743,20 +734,12 @@ func (h *sentPacketHandler) updateDeadlineInformation(ackFrame *wire.AckFrame) {
 	// Update total Deadline Information
 	h.changePDInfo.totalMeetDeadline = h.changePDInfo.totalMeetDeadline + ackFrame.NumMeetDeadline
 	h.changePDInfo.totalHasDeadline = h.changePDInfo.totalHasDeadline + ackFrame.NumHasDeadline
-	fmt.Println("curMeetDeadline:", h.changePDInfo.curMeetDeadline)
-	fmt.Println("curHasDeadline:", h.changePDInfo.curHasDeadline)
-	fmt.Println("totalMeetDeadline:", h.changePDInfo.totalMeetDeadline)
-	fmt.Println("totalHasDeadline:", h.changePDInfo.totalHasDeadline)
 }
 
 func (cpd *ChangePointDetectionHandler) updateBanditInfo(reward float32, armIndex int) {
-	// update reward
-	//cpd.banditInformation.totalReward[cpd.banditInformation.curArmIndex] += reward
-	fmt.Println("old total reward:", cpd.banditInformation.totalReward[armIndex])
 	//update discount reward
 	cpd.banditInformation.totalReward[armIndex] =
 		gamma*cpd.banditInformation.totalReward[armIndex] + reward
-	fmt.Println("new total reward:", cpd.banditInformation.totalReward[armIndex])
 	// update numPlays
 	cpd.banditInformation.armsNumPlay[cpd.banditInformation.curArmIndex]++
 	cpd.banditInformation.totalNumPlay++
@@ -788,10 +771,6 @@ func (cpd *ChangePointDetectionHandler) updateAlpha() {
 	cpd.banditInformation.curArmIndex = bestArm
 	cpd.alpha = bestAlpha
 
-	// print info
-	fmt.Println("ucbs:", ucbs)
-	fmt.Println("select arm:", bestArm)
-	fmt.Println("select alpha", bestAlpha)
 }
 
 func (bandit *BanditInformation) computeUCB() []float32 {
@@ -833,18 +812,15 @@ func (cpd *ChangePointDetectionHandler) updateHistoricalData(armIndex int) {
 	if len(cpd.historicalHasDeadlines[armIndex]) > historyLen {
 		cpd.historicalHasDeadlines[armIndex] = cpd.historicalHasDeadlines[armIndex][len(cpd.historicalHasDeadlines[armIndex])-historyLen:]
 	}
-
-	fmt.Println("historyMeetDeadline:", cpd.historicalMeetDeadlines)
-	fmt.Println("historyHasDeadline:", cpd.historicalHasDeadlines)
 }
 
-//CalculateMeetRatio calculate accumulate meet ratio
+// CalculateMeetRatio calculate accumulate meet ratio
 func (h *sentPacketHandler) CalculateMeetRatio() float32 {
 	curMeetRatio := float32(h.changePDInfo.totalMeetDeadline) / float32(h.changePDInfo.totalHasDeadline+1)
 	return curMeetRatio
 }
 
-//CalculateInstantMeetRatio calculate instant meet ratio
+// CalculateInstantMeetRatio calculate instant meet ratio
 func (h *sentPacketHandler) CalculateInstantMeetRatio() float32 {
 	accumulateMeetRatio := h.CalculateMeetRatio()
 	if h.changePDInfo.curHasDeadline == 0 {
@@ -856,7 +832,7 @@ func (h *sentPacketHandler) CalculateInstantMeetRatio() float32 {
 	}
 }
 
-//CalculateHistoryMeetRatio calculate history meet ratio
+// CalculateHistoryMeetRatio calculate history meet ratio
 func (h *sentPacketHandler) CalculateHistoryMeetRatio(armIndex int) float32 {
 	if len(h.changePDInfo.historicalMeetDeadlines[armIndex]) < historyLen ||
 		len(h.changePDInfo.historicalHasDeadlines[armIndex]) < historyLen {

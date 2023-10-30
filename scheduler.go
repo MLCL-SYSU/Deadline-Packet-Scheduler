@@ -220,7 +220,6 @@ pathLoop:
 		}
 
 		currentQuota, ok = sch.quotas[pathID]
-		fmt.Println("RR-pathID:", pathID, "quotas:", sch.quotas)
 		if !ok {
 			sch.quotas[pathID] = 0
 			currentQuota = 0
@@ -553,7 +552,6 @@ pathLoop:
 	s.streamsMap.Iterate(getQueueSize)
 
 	cwndBest := uint64(bestPath.sentPacketHandler.GetCongestionWindow())
-	fmt.Println("ECF-CWNDbest:", cwndBest)
 	cwndSecond := uint64(secondBestPath.sentPacketHandler.GetCongestionWindow())
 	deviationBest := uint64(bestPath.rttStats.MeanDeviation())
 	deviationSecond := uint64(secondBestPath.rttStats.MeanDeviation())
@@ -1023,7 +1021,6 @@ pathLoop:
 		}
 
 		//Features
-		fmt.Println("Peekaboo")
 		cwndBest := float64(bestPath.sentPacketHandler.GetCongestionWindow())
 		cwndSecond := float64(secondBestPath.sentPacketHandler.GetCongestionWindow())
 		BSend, _ := s.flowControlManager.SendWindowSize(protocol.StreamID(5))
@@ -1199,36 +1196,26 @@ func (sch *scheduler) selectPathDQNAgent(s *session, hasRetransmission bool, has
 func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRetransmission bool, fromPth *path) *path {
 	// XXX Currently round-robin
 	if sch.SchedulerName == "rtt" {
-		fmt.Println("Selecting path: rtt")
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "random" {
 		//random is roundrobin, not random
-		fmt.Println("Selecting path: roundrobin")
 		return sch.selectPathRoundRobin(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "lowband" {
-		fmt.Println("Selecting path: lowband")
 		return sch.selectPathLowBandit(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "peek" {
-		fmt.Println("Selecting path: peek")
 		return sch.selectPathPeek(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "ecf" {
-		fmt.Println("Selecting path: ecf")
 		return sch.selectECF(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "blest" {
-		fmt.Println("Selecting path: blest")
 		return sch.selectBLEST(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "dqnAgent" {
-		fmt.Println("Selecting path: dqnAgent")
 		return sch.selectPathDQNAgent(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "primary" {
-		fmt.Println("Selecting path: primary")
 		return sch.selectFirstPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else if sch.SchedulerName == "secondPath" {
-		fmt.Println("Selecting path: second")
 		return sch.selectSecondPath(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	} else {
 		// Default, rtt
-		fmt.Println("Selecting path: default--rtt")
 		return sch.selectPathLowLatency(s, hasRetransmission, hasStreamRetransmission, fromPth)
 	}
 	// return sch.selectPathRoundRobin(s, hasRetransmission, hasStreamRetransmission, fromPth)
@@ -1237,9 +1224,6 @@ func (sch *scheduler) selectPath(s *session, hasRetransmission bool, hasStreamRe
 // Lock of s.paths must be free (in case of log print)
 func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wire.WindowUpdateFrame,
 	pth *path, deadline time.Time, curNotSent uint8, alpha uint8) (*ackhandler.Packet, bool, error) {
-	// print cwnd/bytes
-	//fmt.Println("Path ID:", pth.pathID, ",CWND:", pth.sentPacketHandler.GetCongestionWindow())
-
 	// add cost here
 	if pth.pathID == protocol.PathID(1) {
 		sch.totalCost += path1Cost
@@ -1255,12 +1239,10 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 	packet, err := s.packer.PackPacket(pth, deadline, curNotSent, alpha)
 	if err != nil || packet == nil {
 		// always trigger by payloadFrame = 0
-		fmt.Println("PackPacket error!")
 		return nil, false, err
 	}
 	if err = s.sendPackedPacket(packet, pth); err != nil {
 		// not execute
-		fmt.Println("sendPackedPacket error!")
 		return nil, false, err
 	}
 
@@ -1298,9 +1280,7 @@ func (sch *scheduler) performPacketSending(s *session, windowUpdateFrames []*wir
 				utils.Infof("Not Sent Packets Num:%d", notSentPkts) //only linOpt not zeros
 				TotalCost := sch.GetTotalCost()
 				totalPkts := sch.GetTotalPktWithCost()
-				fmt.Println("Total Packets:", totalPkts)
-				fmt.Println("scheduler total cost:", TotalCost)
-				fmt.Println("normalization total cost", TotalCost/float64(totalPkts))
+				utils.Infof("normalization total cost", TotalCost/float64(totalPkts))
 				// peekaboo log
 				// utils.Infof("Action: %d", sch.actionvector)
 				// utils.Infof("record: %d", sch.record)
@@ -1455,7 +1435,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 	// get WindowUpdate frames
 	// this call triggers the flow controller to increase the flow control windows, if necessary
 	windowUpdateFrames := s.getWindowUpdateFrames(false)
-	fmt.Println("windowUpdateFrames:", windowUpdateFrames)
 	for _, wuf := range windowUpdateFrames {
 		s.packer.QueueControlFrame(wuf, pth)
 	}
@@ -1464,9 +1443,7 @@ func (sch *scheduler) sendPacket(s *session) error {
 	// then receive packet, get deadline and received time.
 
 	// Repeatedly try sending until we don't have any more data, or run out of the congestion window
-	fmt.Println("A new sendPacket function.")
 	if len(sch.SchedulerName) > 5 && sch.SchedulerName[:5] == "Batch" {
-		fmt.Println("Batch packet transfer!")
 		for {
 			// We first check for retransmissions
 			hasRetransmission, retransmitHandshakePacket, fromPth := sch.getRetransmission(s)
@@ -1483,28 +1460,23 @@ func (sch *scheduler) sendPacket(s *session) error {
 			if len(s.paths) > 1 && !sch.canMadeDecision(s, batch) {
 				// can not make decision
 				s.pathsLock.RUnlock()
-				fmt.Println("windows is less than batchSize, can not make decision and update Frame!")
 				windowUpdateFrames := s.getWindowUpdateFrames(false)
 				return sch.ackRemainingPaths(s, windowUpdateFrames)
 			}
-			fmt.Println("Past Time:", time.Now().Sub(sch.startTime))
 			pthBatch := sch.selectBatchPath(s, hasRetransmission, hasStreamRetransmission, fromPth, deadlineBatch)
 			s.pathsLock.RUnlock()
-			fmt.Println("Deadline Batch:", deadlineBatch)
 
 			// LinOptCost will wait for low-cost path
 			if costConstraintAvailable {
 				sch.choosePacketsForLowCost(s, deadlineBatch, pthBatch, generateTime)
 				if sch.maybeUpdateWindow(s) {
 					windowUpdateFrames := s.getWindowUpdateFrames(false)
-					fmt.Println("In COST, windowUpdateFrame")
 					return sch.ackRemainingPaths(s, windowUpdateFrames)
 				}
 			}
 
 			// this pth to deal with the special case, like retransmission
 			// set the first not nil value of pthBatch to pth
-			fmt.Println("pthBatch:", pthBatch)
 			if pthBatch == nil {
 				fmt.Println("pthBatch is nil")
 			}
@@ -1519,14 +1491,12 @@ func (sch *scheduler) sendPacket(s *session) error {
 			// TODO:pth and pthBatch is necessary?
 			if pth == nil {
 				windowUpdateFrames := s.getWindowUpdateFrames(false)
-				fmt.Println("pth is nil, into a ackRemainingPaths!")
 				return sch.ackRemainingPaths(s, windowUpdateFrames)
 			}
 
 			// XXX No more path available, should we have a new QUIC error message?
 			if pthBatch == nil {
 				windowUpdateFrames := s.getWindowUpdateFrames(false)
-				fmt.Println("pthBatch is nil, into a ackRemainingPaths!")
 				return sch.ackRemainingPaths(s, windowUpdateFrames)
 			}
 
@@ -1581,12 +1551,10 @@ func (sch *scheduler) sendPacket(s *session) error {
 					sch.curNotSentPacket++
 				}
 			}
-			fmt.Println("CurNotSentPacket:", sch.curNotSentPacket)
 
 			// PerformSendingPacket at pthBatch
 			// This pkt is Packet, sent is true
 			for i := 0; i < batch; i++ {
-				fmt.Println("In batch =", batch, ", current pkt is:", i)
 				deadline := generateTime.Add(time.Duration(deadlineBatch[i]) * time.Millisecond)
 				pth = pthBatch[i]
 				if pth == nil {
@@ -1608,7 +1576,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 				//windowUpdateFrames := s.getWindowUpdateFrames(false)
 				if !sent {
 					// Prevent sending empty packets
-					fmt.Println("sent is not true, into ackRemainingPaths.")
 					return sch.ackRemainingPaths(s, windowUpdateFrames)
 				}
 
@@ -1620,13 +1587,11 @@ func (sch *scheduler) sendPacket(s *session) error {
 				duplicateLoop1:
 					for pathID, tmpPth := range s.paths {
 						if pathID == protocol.InitialPathID || pathID == pth.pathID {
-							fmt.Println("pathID is 0, continue!")
 							continue
 						}
 						if sch.quotas[pathID] < currentQuota && tmpPth.sentPacketHandler.SendingAllowed() {
 							// Duplicate it
 							pth.sentPacketHandler.DuplicatePacket(pkt)
-							fmt.Println("Because smoothedRTT == 0, duplicatePacket!")
 							break duplicateLoop1
 						}
 					}
@@ -1635,7 +1600,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 				// And try pinging on potentially failed paths
 				if fromPth != nil && fromPth.potentiallyFailed.Get() {
 					err = s.sendPing(fromPth)
-					fmt.Println("try pinging on potentially failed paths.")
 					if err != nil {
 						return err
 					}
@@ -1644,7 +1608,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 		}
 	} else {
 		for {
-			fmt.Println("One decision one packet")
 			// We first check for retransmissions
 			hasRetransmission, retransmitHandshakePacket, fromPth := sch.getRetransmission(s)
 			// XXX There might still be some stream frames to be retransmitted
@@ -1666,8 +1629,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 			// XXX No more path available, should we have a new QUIC error message?
 			if pth == nil {
 				windowUpdateFrames := s.getWindowUpdateFrames(false)
-				fmt.Println("windowUpdateFrame:", windowUpdateFrames)
-				fmt.Println("pth is nil, into a ackRemainingPaths!")
 				return sch.ackRemainingPaths(s, windowUpdateFrames)
 			}
 
@@ -1682,7 +1643,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 					return err
 				}
 				// not execute
-				fmt.Println("continue a new for!")
 				continue
 			}
 
@@ -1716,10 +1676,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 			}
 
 			// This pkt is Packet, sent is true
-			// windowUpdateFrames is always nil
-			//if windowUpdateFrames == nil {
-			//	fmt.Println("windowUpdateFrames is nil!")
-			//}
 			pkt, sent, err := sch.performPacketSending(s, windowUpdateFrames, pth, deadline, uint8(0), uint8(10))
 			if err != nil {
 				if err == ackhandler.ErrTooManyTrackedSentPackets {
@@ -1733,7 +1689,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 			windowUpdateFrames = nil
 			if !sent {
 				// Prevent sending empty packets
-				fmt.Println("sent is not true, into ackRemainingPaths.")
 				return sch.ackRemainingPaths(s, windowUpdateFrames)
 			}
 
@@ -1745,14 +1700,12 @@ func (sch *scheduler) sendPacket(s *session) error {
 			duplicateLoop:
 				for pathID, tmpPth := range s.paths {
 					if pathID == protocol.InitialPathID || pathID == pth.pathID {
-						fmt.Println("pathID is 0, continue!")
 						continue
 					}
 					if sch.quotas[pathID] < currentQuota && tmpPth.sentPacketHandler.SendingAllowed() {
 						// Duplicate it
 						pth.sentPacketHandler.DuplicatePacket(pkt)
 						// almost not execute
-						fmt.Println("Because smoothedRTT == 0, duplicatePacket!")
 						break duplicateLoop
 					}
 				}
@@ -1761,7 +1714,6 @@ func (sch *scheduler) sendPacket(s *session) error {
 			// And try pinging on potentially failed paths
 			if fromPth != nil && fromPth.potentiallyFailed.Get() {
 				err = s.sendPing(fromPth)
-				fmt.Println("try pinging on potentially failed paths.")
 				if err != nil {
 					return err
 				}
@@ -1778,8 +1730,6 @@ func (sch *scheduler) choosePacketsForLowCost(s *session, deadlineBatch []int, p
 	}
 	for i, deadline := range deadlineBatch {
 		if pthBatch[i] != nil && pthBatch[i].pathID == protocol.PathID(1) && float64(deadline) > (minRtt*3.0/2.0) {
-			fmt.Println("minRTT", minRtt)
-			fmt.Println("Wait Packet Deadline:", deadline)
 			deadlineTime := generateTime.Add(time.Duration(deadline) * time.Millisecond)
 			sch.waitPackets = append(sch.waitPackets, deadlineTime)
 			pthBatch[i] = nil
