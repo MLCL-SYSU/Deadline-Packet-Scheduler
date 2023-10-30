@@ -1,5 +1,5 @@
 # A Deadline-Aware Packet Scheduler and Its Cost Efficient Extension for MPQUIC 
-![](.\docs\scheduler.png)
+<img src="docs/scheduler.png">
 
 **D**eadline-**A**ware **M**ultipath **P**acket **S**cheduler, **DA-MPS**, is designed to deliver more packets before their deadlines in dynamic networks. The fluctuation monitor module can detect the dynamic of networks and adjust the stringency of deadline requirements. 
 
@@ -31,6 +31,6 @@ Our implementation is based on the MPQUIC-go codebase.
 
 ## Requirements
 
-Go 1.10.3
+- Go 1.10.3
 
-Ubuntu LTS (18.04)
+- Ubuntu LTS (18.04)
